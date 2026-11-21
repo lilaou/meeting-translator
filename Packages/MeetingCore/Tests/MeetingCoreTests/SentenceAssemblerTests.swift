@@ -98,6 +98,28 @@ import Testing
         #expect(a.ingest(text: "看一下。", range: 1...2).map(\.text) == ["我们先看一下。"])
     }
 
+    // F4: Korean separates words with spaces; only Han, kana and full-width forms join
+    // without one. Reading of the rule: no space is inserted only when BOTH the end of the
+    // buffer and the start of the new piece are such characters.
+
+    @Test func koreanPiecesAreJoinedWithASpace() {
+        var a = SentenceAssembler(maxCharacters: 200)
+        #expect(a.ingest(text: "회의를", range: 0...1).isEmpty)
+        #expect(a.ingest(text: "시작합시다.", range: 1...2).map(\.text) == ["회의를 시작합시다."])
+    }
+
+    @Test func chinesePiecesStillJoinWithoutASpace() {
+        var a = SentenceAssembler(maxCharacters: 200)
+        #expect(a.ingest(text: "会议", range: 0...1).isEmpty)
+        #expect(a.ingest(text: "开始了。", range: 1...2).map(\.text) == ["会议开始了。"])
+    }
+
+    @Test func koreanPieceAfterChinesePieceGetsSpaceBecauseNoSpaceNeedsBothSidesCJK() {
+        var a = SentenceAssembler(maxCharacters: 200)
+        #expect(a.ingest(text: "会议", range: 0...1).isEmpty)
+        #expect(a.ingest(text: "시작합시다.", range: 1...2).map(\.text) == ["会议 시작합시다."])
+    }
+
     @Test func sentenceSpanningTwoPiecesCarriesTailTiming() {
         var a = SentenceAssembler(maxCharacters: 200)
         #expect(a.ingest(text: "We will ship", range: 0...2).isEmpty)

@@ -28,7 +28,8 @@ public struct SentenceAssembler: Sendable {
         guard !piece.isEmpty else { return [] }
         if buffer.isEmpty {
             bufferStart = range.lowerBound
-        } else if let last = buffer.last, !Self.isCJK(last) {
+        } else if let last = buffer.last, let first = piece.first,
+                  !(Self.joinsWithoutSpace(last) && Self.joinsWithoutSpace(first)) {
             buffer.append(" ")
         }
         buffer.append(contentsOf: piece)
@@ -92,8 +93,10 @@ public struct SentenceAssembler: Sendable {
         return word.wholeMatch(of: /([A-Za-z]\.)*[A-Za-z]/) != nil
     }
 
-    private static func isCJK(_ c: Character) -> Bool {
+    /// Han, kana, CJK punctuation and full-width forms: written without spaces between words.
+    /// Hangul is deliberately not included, because Korean separates words with spaces.
+    private static func joinsWithoutSpace(_ c: Character) -> Bool {
         guard let v = c.unicodeScalars.first?.value else { return false }
-        return (0x3000...0x9FFF).contains(v) || (0xAC00...0xD7AF).contains(v) || (0xFF00...0xFFEF).contains(v)
+        return (0x3000...0x9FFF).contains(v) || (0xFF00...0xFFEF).contains(v)
     }
 }
