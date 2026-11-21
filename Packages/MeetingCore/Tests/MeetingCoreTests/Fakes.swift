@@ -5,13 +5,18 @@ import Synchronization
 
 enum FakeError: Error, Equatable { case translation, asr }
 
+/// Emits `events`, then finishes (throwing `error` if given). With `keepOpen`, the event
+/// stream instead stays open until the audio stream it was given finishes (like a real
+/// engine) or the consumer goes away.
 struct FakeASREngine: ASREngine {
     let events: [ASREvent]
     let error: Error?
+    let keepOpen: Bool
 
-    init(events: [ASREvent], error: Error? = nil) {
+    init(events: [ASREvent], error: Error? = nil, keepOpen: Bool = false) {
         self.events = events
         self.error = error
+        self.keepOpen = keepOpen
     }
 
     func supportedLocales() async -> [Locale] { [Locale(identifier: "en-US")] }
@@ -22,12 +27,34 @@ struct FakeASREngine: ASREngine {
 
     func transcribe(_ audio: AsyncStream<AVAudioPCMBuffer>, locale: Locale)
         -> AsyncThrowingStream<ASREvent, Error> {
-        let events = events, error = error
+        let events = events, error = error, keepOpen = keepOpen
         return AsyncThrowingStream { continuation in
             for e in events { continuation.yield(e) }
-            continuation.finish(throwing: error)
+            if keepOpen {
+                finishWhenAudioEnds(audio, continuation, throwing: error)
+            } else {
+                continuation.finish(throwing: error)
+            }
         }
     }
+}
+
+/// Finishes `continuation` once `audio` ends or the event stream's consumer is gone.
+func finishWhenAudioEnds(_ audio: AsyncStream<AVAudioPCMBuffer>,
+                         _ continuation: AsyncThrowingStream<ASREvent, Error>.Continuation,
+                         throwing error: Error? = nil) {
+    let audio = AudioHandoff(stream: audio)
+    let watcher = Task {
+        for await _ in audio.stream {}
+        continuation.finish(throwing: error)
+    }
+    continuation.onTermination = { _ in watcher.cancel() }
+}
+
+/// Test-only: AsyncStream of non-Sendable buffers is not Sendable. The watcher task is the
+/// stream's only consumer and never touches a buffer, so moving the stream there is safe.
+private struct AudioHandoff: @unchecked Sendable {
+    let stream: AsyncStream<AVAudioPCMBuffer>
 }
 
 /// A one-shot latch: `wait()` suspends until `open()` is called (returns at once afterwards).
