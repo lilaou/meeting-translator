@@ -15,3 +15,21 @@ import AVFoundation
     let out = try await t.translateBatch(["a", "b"], from: .init(identifier: "en"), context: [])
     #expect(out == ["译:a", "译:b"])
 }
+
+/// Implements only the required methods, so translateBatch uses the protocol default.
+private struct DefaultOnlyTranslator: Translator {
+    func canTranslate(from source: Locale.Language) async -> Bool { true }
+    func translate(_ text: String, from source: Locale.Language, context: [String]) async throws -> String {
+        "T:" + text
+    }
+}
+
+@Test func protocolDefaultBatchTranslatesEachInOrder() async throws {
+    let t = DefaultOnlyTranslator()
+    let src = Locale.Language(identifier: "en")
+    let three = try await t.translateBatch(["a", "b", "c"], from: src, context: [])
+    #expect(three == ["T:a", "T:b", "T:c"])
+    #expect(three.count == 3)
+    let none = try await t.translateBatch([], from: src, context: [])
+    #expect(none.isEmpty)
+}
