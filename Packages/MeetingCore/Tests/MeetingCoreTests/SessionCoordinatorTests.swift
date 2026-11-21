@@ -251,6 +251,46 @@ struct SessionCoordinatorTests {
         #expect(segments.first?.meeting?.endedAt != nil)
     }
 
+    /// F1: the first `append` fails at `save()`; the retry must not leave a second copy.
+    @MainActor @Test func saveFailureRetryStoresTheSentenceOnce() async throws {
+        let engine = ManualASREngine()
+        let (c, store) = try makeCoordinator(engine: engine)
+        await c.start(locale: enUS)
+        let id = try #require(c.meetingID)
+        store.failNextSaves = 1
+        engine.send(.finalized(text: "Hello.", range: 0...1))
+        await c.finish()
+        #expect(c.state == .idle)
+        let segments = try store.segments(of: id)
+        #expect(segments.map(\.sourceText) == ["Hello."])
+        #expect(segments.map(\.index) == [0])
+        #expect(segments.map(\.statusRaw) == [translated])
+    }
+
+    /// F1: both attempts fail at `save()`; the sentence is counted, and no orphan row is
+    /// written by the next successful save.
+    @MainActor @Test func saveFailureOnBothAttemptsIsCountedWithoutOrphans() async throws {
+        let engine = ManualASREngine()
+        let (c, store) = try makeCoordinator(engine: engine)
+        await c.start(locale: enUS)
+        let id = try #require(c.meetingID)
+        store.failNextSaves = 2
+        engine.send(.finalized(text: "Lost.", range: 0...1))
+        engine.send(.volatile(text: "m1"))
+        await waitUntil { c.volatileText == "m1" }
+        engine.send(.finalized(text: "After.", range: 1...2))
+        await c.finish()
+        guard case .failed(let message) = c.state else {
+            Issue.record("expected .failed, got \(c.state)")
+            return
+        }
+        #expect(message.contains("1 句未能保存"))
+        let segments = try store.segments(of: id)
+        #expect(segments.map(\.sourceText) == ["After."])
+        #expect(segments.map(\.index) == [0])
+        #expect(segments.map(\.statusRaw) == [translated])
+    }
+
     @MainActor @Test func translationLagIsExposedAndClears() async throws {
         var config = PipelineConfig()
         config.backlogThreshold = 1

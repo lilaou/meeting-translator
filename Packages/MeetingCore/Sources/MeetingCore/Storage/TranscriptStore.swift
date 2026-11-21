@@ -10,6 +10,11 @@ import SwiftData
 
     private let context: ModelContext
 
+    /// Test-only seam: while > 0, each write fails right before `save()` (after its changes
+    /// are made), as a real save failure would. Not part of the public API.
+    var failNextSaves = 0
+    struct InjectedSaveFailure: Error {}
+
     public init(container: ModelContainer) {
         self.context = ModelContext(container)
     }
@@ -25,7 +30,7 @@ import SwiftData
         let meeting = Meeting(title: Self.defaultTitle(for: date), startedAt: date,
                               sourceLocaleID: locale.identifier)
         context.insert(meeting)
-        try context.save()
+        try save()
         return meeting.id
     }
 
@@ -36,7 +41,7 @@ import SwiftData
                               startTime: sentence.start, endTime: sentence.end)
         segment.meeting = meeting
         context.insert(segment)
-        try context.save()
+        try save()
         return segment.id
     }
 
@@ -45,24 +50,40 @@ import SwiftData
         guard segment.statusRaw != SegmentStatus.translated.rawValue else { return }
         segment.translatedText = text
         segment.statusRaw = SegmentStatus.translated.rawValue
-        try context.save()
+        try save()
     }
 
     public func markTranslationFailed(_ segmentID: UUID) throws {
         let segment = try fetchSegment(segmentID)
         guard segment.statusRaw != SegmentStatus.translated.rawValue else { return }
         segment.statusRaw = SegmentStatus.translationFailed.rawValue
-        try context.save()
+        try save()
     }
 
     public func endMeeting(_ meetingID: UUID, at date: Date) throws {
         let meeting = try fetchMeeting(meetingID)
         meeting.endedAt = date
-        try context.save()
+        try save()
     }
 
     public func segments(of meetingID: UUID) throws -> [Segment] {
         try fetchMeeting(meetingID).segments.sorted { $0.index < $1.index }
+    }
+
+    /// Every write saves at once, so the only pending changes are the current write's. On a
+    /// failure they are rolled back: a retry must not find (and later persist) a half-written
+    /// copy, and one bad object must not make every later save fail.
+    private func save() throws {
+        do {
+            if failNextSaves > 0 {
+                failNextSaves -= 1
+                throw InjectedSaveFailure()
+            }
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
     }
 
     private func fetchMeeting(_ id: UUID) throws -> Meeting {
