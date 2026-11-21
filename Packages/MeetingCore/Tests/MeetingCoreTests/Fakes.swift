@@ -120,3 +120,47 @@ final class FakeTranslator: Translator, Sendable {
         return "译:" + text
     }
 }
+
+struct FakeReadiness: ReadinessChecking {
+    let preflightError: ReadinessFailure?
+
+    init(preflightError: ReadinessFailure? = nil) { self.preflightError = preflightError }
+
+    func speechState(for locale: Locale) async -> PackState { .installed }
+    func translationState(from source: Locale.Language) async -> PackState { .installed }
+    func installSpeechPack(for locale: Locale) async throws {}
+    func selfTest(locale: Locale) async throws {}
+    func preflight(locale: Locale) async throws {
+        if let preflightError { throw preflightError }
+    }
+}
+
+/// Test-controlled audio source. `stop()` and `endStream()` both finish the stream and are
+/// idempotent; `emit` after the stream finished (or before `start`) is silently dropped.
+final class FakeAudioSource: AudioSource, Sendable {
+    private let continuation = Mutex<AsyncStream<AVAudioPCMBuffer>.Continuation?>(nil)
+    private let stops = Mutex(0)
+
+    var stopCallCount: Int { stops.withLock { $0 } }
+
+    func start(format: AVAudioFormat) async throws -> AsyncStream<AVAudioPCMBuffer> {
+        let (stream, cont) = AsyncStream<AVAudioPCMBuffer>.makeStream()
+        continuation.withLock { $0 = cont }
+        return stream
+    }
+
+    func emit(_ buffer: sending AVAudioPCMBuffer) {
+        let cont = continuation.withLock { $0 }
+        cont?.yield(buffer)
+    }
+
+    /// Simulates a system interruption: finishes the stream.
+    func endStream() {
+        continuation.withLock { $0?.finish() }
+    }
+
+    func stop() async {
+        stops.withLock { $0 += 1 }
+        endStream()
+    }
+}

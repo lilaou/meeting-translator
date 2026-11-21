@@ -33,3 +33,45 @@ private struct DefaultOnlyTranslator: Translator {
     let none = try await t.translateBatch([], from: src, context: [])
     #expect(none.isEmpty)
 }
+
+@Test func fakeReadinessPreflight() async throws {
+    try await FakeReadiness().preflight(locale: Locale(identifier: "en-US"))
+    await #expect(throws: ReadinessFailure.translationPackMissing) {
+        try await FakeReadiness(preflightError: .translationPackMissing)
+            .preflight(locale: Locale(identifier: "en-US"))
+    }
+}
+
+private func makeFormat() -> AVAudioFormat { AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)! }
+
+private func makeBuffer(frames: AVAudioFrameCount) -> AVAudioPCMBuffer {
+    let b = AVAudioPCMBuffer(pcmFormat: makeFormat(), frameCapacity: frames)!
+    b.frameLength = frames
+    return b
+}
+
+@Test func fakeAudioSourceEmitsInOrderThenEndStreamFinishes() async throws {
+    let source = FakeAudioSource()
+    let stream = try await source.start(format: makeFormat())
+    source.emit(makeBuffer(frames: 1))
+    source.emit(makeBuffer(frames: 2))
+    source.endStream()
+    source.endStream()
+    var lengths: [AVAudioFrameCount] = []
+    for await b in stream { lengths.append(b.frameLength) }
+    #expect(lengths == [1, 2])
+    source.emit(makeBuffer(frames: 3)) // after finish: silently dropped
+    #expect(source.stopCallCount == 0)
+}
+
+@Test func fakeAudioSourceStopFinishesStreamAndCounts() async throws {
+    let source = FakeAudioSource()
+    let stream = try await source.start(format: makeFormat())
+    await source.stop()
+    var count = 0
+    for await _ in stream { count += 1 }
+    #expect(count == 0)
+    #expect(source.stopCallCount == 1)
+    await source.stop()
+    #expect(source.stopCallCount == 2)
+}
