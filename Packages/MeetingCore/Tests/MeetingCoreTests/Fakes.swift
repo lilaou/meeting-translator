@@ -30,16 +30,59 @@ struct FakeASREngine: ASREngine {
     }
 }
 
+/// A one-shot latch: `wait()` suspends until `open()` is called (returns at once afterwards).
+final class Gate: Sendable {
+    private struct State {
+        var isOpen = false
+        var waiters: [CheckedContinuation<Void, Never>] = []
+    }
+    private let state = Mutex(State())
+
+    func open() {
+        let waiters = state.withLock { s in
+            s.isOpen = true
+            defer { s.waiters = [] }
+            return s.waiters
+        }
+        for w in waiters { w.resume() }
+    }
+
+    func wait() async {
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            let resumeNow = state.withLock { s in
+                if s.isOpen { return true }
+                s.waiters.append(c)
+                return false
+            }
+            if resumeNow { c.resume() }
+        }
+    }
+}
+
 final class FakeTranslator: Translator, Sendable {
     private let failing: Set<String>
     private let delay: Duration
+    private let gate: Gate?
+    private let gateUsed = Mutex(false)
     private let sizes = Mutex<[Int]>([])
     private let batchCtx = Mutex<[[String]]>([])
     private let singleCtx = Mutex<[[String]]>([])
 
-    init(failing: Set<String> = [], delay: Duration = .zero) {
+    /// With a `gate`, the FIRST request (batch or single) blocks until the gate is opened,
+    /// so a test can enqueue more work while that request is deterministically in flight.
+    init(failing: Set<String> = [], delay: Duration = .zero, gate: Gate? = nil) {
         self.failing = failing
         self.delay = delay
+        self.gate = gate
+    }
+
+    private func waitForGateIfFirst() async {
+        guard let gate else { return }
+        let isFirst = gateUsed.withLock { used in
+            defer { used = true }
+            return !used
+        }
+        if isFirst { await gate.wait() }
     }
 
     /// Size of every translateBatch call, in call order.
@@ -53,6 +96,7 @@ final class FakeTranslator: Translator, Sendable {
 
     func translate(_ text: String, from source: Locale.Language, context: [String]) async throws -> String {
         singleCtx.withLock { $0.append(context) }
+        await waitForGateIfFirst()
         return try await translateOne(text)
     }
 
@@ -60,6 +104,7 @@ final class FakeTranslator: Translator, Sendable {
     func translateBatch(_ texts: [String], from source: Locale.Language, context: [String]) async throws -> [String] {
         sizes.withLock { $0.append(texts.count) }
         batchCtx.withLock { $0.append(context) }
+        await waitForGateIfFirst()
         if texts.contains(where: failing.contains) {
             if delay != .zero { try await Task.sleep(for: delay) }
             throw FakeError.translation

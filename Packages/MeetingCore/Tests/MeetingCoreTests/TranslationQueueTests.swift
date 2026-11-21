@@ -27,11 +27,16 @@ private func collect<T>(_ stream: AsyncStream<T>) async -> [T] {
     #expect(got.map(\.translation) == ["译:a", "译:b", "译:c"])
 }
 
+// The gate holds the first request in flight until the follow-up enqueues have returned,
+// so batch shapes are exact regardless of scheduling (no sleeps, no translator delay).
+
 @Test func backlogIsSentAsOneBatch() async {
-    let translator = FakeTranslator(delay: .milliseconds(50))
+    let gate = Gate()
+    let translator = FakeTranslator(gate: gate)
     let queue = makeQueue(translator)
     await queue.enqueue(segmentID: UUID(), text: "s0")
     for i in 1...4 { await queue.enqueue(segmentID: UUID(), text: "s\(i)") }
+    gate.open()
     await queue.finish()
     #expect(translator.batchSizes == [1, 4])
     let got = await collect(queue.outcomes)
@@ -39,12 +44,14 @@ private func collect<T>(_ stream: AsyncStream<T>) async -> [T] {
 }
 
 @Test func oneFailureDoesNotBlockOthers() async {
-    // The delay makes b and c accumulate into one batch, which throws as a whole;
-    // the queue must fall back to per-sentence translate with the same context.
-    let translator = FakeTranslator(failing: ["b"], delay: .milliseconds(20))
+    // b and c accumulate behind the gated first request into one batch, which throws as a
+    // whole; the queue must fall back to per-sentence translate with the same context.
+    let gate = Gate()
+    let translator = FakeTranslator(failing: ["b"], gate: gate)
     let queue = makeQueue(translator)
     let ids = [UUID(), UUID(), UUID()]
     for (id, text) in zip(ids, ["a", "b", "c"]) { await queue.enqueue(segmentID: id, text: text) }
+    gate.open()
     await queue.finish()
     let got = await collect(queue.outcomes)
     #expect(got.map(\.segmentID) == ids)
@@ -55,8 +62,10 @@ private func collect<T>(_ stream: AsyncStream<T>) async -> [T] {
 }
 
 @Test func laggingTogglesAroundThreshold() async {
-    let queue = makeQueue(FakeTranslator(delay: .milliseconds(30)), threshold: 2)
+    let gate = Gate()
+    let queue = makeQueue(FakeTranslator(gate: gate), threshold: 2)
     for text in ["a", "b", "c", "d"] { await queue.enqueue(segmentID: UUID(), text: text) }
+    gate.open()
     await queue.finish()
     #expect(await collect(queue.lagging) == [true, false])
     #expect(await collect(queue.outcomes).count == 4)
