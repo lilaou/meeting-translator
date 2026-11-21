@@ -6,7 +6,7 @@
 - 实施计划：`docs/superpowers/plans/2026-11-20-meeting-translator-phase0-1.md`
 - 原始材料：`iphoneTranslator.md`（ChatGPT 的初步建议，架构部分已被上面的设计取代）
 
-目前仓库里只有文档，还没有代码。开发必须在 Mac 上进行，本文件说明 Mac 上的准备步骤。
+仓库里已有与引擎无关的核心逻辑：Swift 包 `Packages/MeetingCore`，用 `swift test --package-path Packages/MeetingCore` 运行测试，在 macOS 15 + Xcode 16.4 上即可运行；Apple Speech / Translation 引擎、麦克风采集和 App 界面（计划 Task 7–11）仍需 macOS 26 / iOS 27 SDK 和真机。开发必须在 Mac 上进行，本文件说明 Mac 上的准备步骤。
 
 ## 1. 拷贝项目
 

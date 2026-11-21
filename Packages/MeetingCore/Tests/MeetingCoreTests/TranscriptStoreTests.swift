@@ -11,6 +11,7 @@ import SwiftData
     let segs = try store.segments(of: m)
     #expect(segs.map(\.index) == [0, 1])
     #expect(segs.allSatisfy { $0.statusRaw == SegmentStatus.pendingTranslation.rawValue })
+    #expect(segs.allSatisfy { $0.status == .pendingTranslation })
 }
 
 @MainActor @Test func setTranslationFillsTextAndStatus() throws {

@@ -77,9 +77,9 @@ public struct SentenceAssembler: Sendable {
         let c = buffer[i]
         if Self.alwaysTerminators.contains(c) { return true }
         guard Self.conditionalTerminators.contains(c) else { return false }
+        // Must be followed by whitespace or the end: this also keeps "3.5" and "example.com" whole.
         if i + 1 < buffer.count, !buffer[i + 1].isWhitespace { return false }
         guard c == "." else { return true }
-        if i > 0, i + 1 < buffer.count, buffer[i - 1].isNumber, buffer[i + 1].isNumber { return false }
         return !isAbbreviation(endingBefore: i)
     }
 

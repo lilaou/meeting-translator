@@ -32,6 +32,9 @@ public enum SegmentStatus: String, Codable, Sendable {
     public var endTime: TimeInterval
     public var statusRaw: String
 
+    /// Typed view of `statusRaw`; an unknown raw value reads as `.pendingTranslation`.
+    public var status: SegmentStatus { SegmentStatus(rawValue: statusRaw) ?? .pendingTranslation }
+
     public init(id: UUID = UUID(), index: Int, sourceText: String,
                 startTime: TimeInterval, endTime: TimeInterval,
                 status: SegmentStatus = .pendingTranslation) {
