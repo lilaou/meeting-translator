@@ -209,6 +209,48 @@ struct SessionCoordinatorTests {
         #expect(try store.segments(of: second).map(\.sourceText) == ["Again."])
     }
 
+    /// R14: a sentence whose append fails (even after one retry) is counted and surfaced as
+    /// `.failed` at the end of wrap-up; the meeting carries on and earlier segments are kept.
+    /// The failure is caused by re-keying the Meeting row from another context (deleting it
+    /// would cascade to the earlier segment), so `store.append` throws `meetingNotFound`.
+    @MainActor @Test func appendFailureIsSurfacedNotDropped() async throws {
+        let container = try ModelContainer(
+            for: Meeting.self, Segment.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let engine = ManualASREngine()
+        let (c, store) = try makeCoordinator(engine: engine, store: TranscriptStore(container: container))
+        await c.start(locale: enUS)
+        #expect(c.state == .listening)
+        let id = try #require(c.meetingID)
+        // A volatile after a final proves the final has been handled (events are in order).
+        engine.send(.finalized(text: "Kept.", range: 0...1))
+        engine.send(.volatile(text: "m1"))
+        await waitUntil { c.volatileText == "m1" }
+
+        let other = container.mainContext
+        let meeting = try #require(try other.fetch(FetchDescriptor<Meeting>()).first)
+        meeting.id = UUID()
+        try other.save()
+        engine.send(.finalized(text: "Lost.", range: 1...2))
+        engine.send(.volatile(text: "m2"))
+        await waitUntil { c.volatileText == "m2" }
+        #expect(c.state == .listening)          // the meeting carries on
+        meeting.id = id                          // so endMeeting can succeed again
+        try other.save()
+        engine.send(.finalized(text: "After.", range: 2...3))
+
+        await c.finish()                         // did not hang
+        guard case .failed(let message) = c.state else {
+            Issue.record("expected .failed, got \(c.state)")
+            return
+        }
+        #expect(message.contains("1 句未能保存"))
+        let segments = try store.segments(of: id)
+        #expect(segments.map(\.sourceText) == ["Kept.", "After."])
+        #expect(segments.map(\.statusRaw) == [translated, translated])
+        #expect(segments.first?.meeting?.endedAt != nil)
+    }
+
     @MainActor @Test func translationLagIsExposedAndClears() async throws {
         var config = PipelineConfig()
         config.backlogThreshold = 1

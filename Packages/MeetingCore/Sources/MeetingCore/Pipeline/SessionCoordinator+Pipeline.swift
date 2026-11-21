@@ -38,6 +38,10 @@ extension SessionCoordinator {
         let queue = TranslationQueue(translator: translator, source: locale.language, config: config)
         self.queue = queue
         enqueueTail = nil
+        unsavedSentences = 0
+        unsavedResults = 0
+        lastWriteError = nil
+        endMeetingError = nil
         engineAudio = wiring.engineAudio
         forwardTask = wiring.forwarder
         audioEndTask = Task { [weak self] in
@@ -75,10 +79,19 @@ extension SessionCoordinator {
         restartPauseTimer()
     }
 
-    /// Writes the sentence to disk at once, then queues it for translation.
+    /// Writes the sentence to disk at once (one retry), then queues it for translation.
+    /// A sentence that still cannot be saved is counted and reported at wrap-up (R14).
     func submit(_ sentence: Sentence) {
-        guard let meetingID, let queue,
-              let segmentID = try? store.append(sentence, to: meetingID) else { return }
+        guard let meetingID, let queue else { return }
+        let segmentID: UUID
+        do {
+            segmentID = try (try? store.append(sentence, to: meetingID))
+                ?? store.append(sentence, to: meetingID)
+        } catch {
+            unsavedSentences += 1
+            lastWriteError = error
+            return
+        }
         let previous = enqueueTail
         enqueueTail = Task {
             await previous?.value
@@ -87,10 +100,15 @@ extension SessionCoordinator {
     }
 
     func apply(_ outcome: TranslationOutcome) {
-        if let translation = outcome.translation {
-            try? store.setTranslation(translation, for: outcome.segmentID)
-        } else {
-            try? store.markTranslationFailed(outcome.segmentID)
+        do {
+            if let translation = outcome.translation {
+                try store.setTranslation(translation, for: outcome.segmentID)
+            } else {
+                try store.markTranslationFailed(outcome.segmentID)
+            }
+        } catch {
+            unsavedResults += 1
+            lastWriteError = error
         }
     }
 
@@ -150,9 +168,11 @@ extension SessionCoordinator {
         await outcomeTask?.value         // every outcome is in the store
         await laggingTask?.value
         isTranslationLagging = false
-        if let meetingID { try? store.endMeeting(meetingID, at: Date()) }
+        if let meetingID {
+            do { try store.endMeeting(meetingID, at: Date()) } catch { endMeetingError = error }
+        }
         clearPipeline()
-        state = error.map { .failed(Self.hint(for: $0)) } ?? .idle
+        state = finalState(trigger: error)
     }
 
     private func clearPipeline() {

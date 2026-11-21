@@ -37,6 +37,11 @@ import Observation
     /// Tail of the serial chain of `queue.enqueue` calls (keeps enqueue order = append order).
     @ObservationIgnored var enqueueTail: Task<Void, Never>?
     @ObservationIgnored var wrapUpTask: Task<Void, Never>?
+    /// Store writes that failed this meeting; reported in the final `.failed` message (R14).
+    @ObservationIgnored var unsavedSentences = 0
+    @ObservationIgnored var unsavedResults = 0
+    @ObservationIgnored var lastWriteError: (any Error)?
+    @ObservationIgnored var endMeetingError: (any Error)?
 
     public init(engine: any ASREngine, translator: any Translator, audio: any AudioSource,
                 readiness: any ReadinessChecking, store: TranscriptStore, config: PipelineConfig) {
@@ -88,6 +93,25 @@ import Observation
         case .listening: await beginWrapUp(error: nil).value
         case .finishing: await wrapUpTask?.value
         case .idle, .preparing, .failed: return
+        }
+    }
+
+    /// Final state after wrap-up: write failures override the trigger, so no loss is silent.
+    func finalState(trigger: (any Error)?) -> State {
+        var problems: [String] = []
+        if let trigger { problems.append(Self.hint(for: trigger)) }
+        let reason = lastWriteError.map(Self.writeReason) ?? ""
+        if unsavedSentences > 0 { problems.append("有 \(unsavedSentences) 句未能保存：\(reason)") }
+        if unsavedResults > 0 { problems.append("有 \(unsavedResults) 条翻译结果未能保存：\(reason)") }
+        if let endMeetingError { problems.append("会议结束时间未能保存：\(Self.writeReason(endMeetingError))") }
+        return problems.isEmpty ? .idle : .failed(problems.joined(separator: "；"))
+    }
+
+    static func writeReason(_ error: any Error) -> String {
+        switch error {
+        case TranscriptStore.StoreError.meetingNotFound: return "找不到会议记录"
+        case TranscriptStore.StoreError.segmentNotFound: return "找不到句子记录"
+        default: return error.localizedDescription
         }
     }
 
