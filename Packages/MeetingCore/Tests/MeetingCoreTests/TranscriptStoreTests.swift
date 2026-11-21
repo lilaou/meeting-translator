@@ -75,3 +75,14 @@ import SwiftData
     #expect(meeting.sourceLocaleID == "en-US")
     #expect(!meeting.title.isEmpty)
 }
+
+@MainActor @Test func markFailedOnTranslatedSegmentIsIgnored() throws {
+    let store = try TranscriptStore.inMemory()
+    let m = try store.startMeeting(locale: Locale(identifier: "en-US"), at: .now)
+    let id = try store.append(Sentence(text: "One.", start: 0, end: 1), to: m)
+    try store.setTranslation("一。", for: id)
+    try store.markTranslationFailed(id)
+    let seg = try store.segments(of: m)[0]
+    #expect(seg.statusRaw == SegmentStatus.translated.rawValue)
+    #expect(seg.translatedText == "一。")
+}

@@ -50,6 +50,7 @@ import SwiftData
 
     public func markTranslationFailed(_ segmentID: UUID) throws {
         let segment = try fetchSegment(segmentID)
+        guard segment.statusRaw != SegmentStatus.translated.rawValue else { return }
         segment.statusRaw = SegmentStatus.translationFailed.rawValue
         try context.save()
     }
