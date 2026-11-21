@@ -1,0 +1,107 @@
+import Testing
+import Foundation
+@testable import MeetingCore
+
+private let en = Locale.Language(identifier: "en")
+
+private func makeQueue(_ translator: FakeTranslator, threshold: Int = 5, contextSize: Int = 3) -> TranslationQueue {
+    var config = PipelineConfig()
+    config.backlogThreshold = threshold
+    config.contextSize = contextSize
+    return TranslationQueue(translator: translator, source: en, config: config)
+}
+
+private func collect<T>(_ stream: AsyncStream<T>) async -> [T] {
+    var out: [T] = []
+    for await x in stream { out.append(x) }
+    return out
+}
+
+@Test func outcomesFollowEnqueueOrder() async {
+    let queue = makeQueue(FakeTranslator())
+    let ids = [UUID(), UUID(), UUID()]
+    for (id, text) in zip(ids, ["a", "b", "c"]) { await queue.enqueue(segmentID: id, text: text) }
+    await queue.finish()
+    let got = await collect(queue.outcomes)
+    #expect(got.map(\.segmentID) == ids)
+    #expect(got.map(\.translation) == ["译:a", "译:b", "译:c"])
+}
+
+@Test func backlogIsSentAsOneBatch() async {
+    let translator = FakeTranslator(delay: .milliseconds(50))
+    let queue = makeQueue(translator)
+    await queue.enqueue(segmentID: UUID(), text: "s0")
+    for i in 1...4 { await queue.enqueue(segmentID: UUID(), text: "s\(i)") }
+    await queue.finish()
+    #expect(translator.batchSizes == [1, 4])
+    let got = await collect(queue.outcomes)
+    #expect(got.map(\.translation) == (0...4).map { "译:s\($0)" })
+}
+
+@Test func oneFailureDoesNotBlockOthers() async {
+    // The delay makes b and c accumulate into one batch, which throws as a whole;
+    // the queue must fall back to per-sentence translate with the same context.
+    let translator = FakeTranslator(failing: ["b"], delay: .milliseconds(20))
+    let queue = makeQueue(translator)
+    let ids = [UUID(), UUID(), UUID()]
+    for (id, text) in zip(ids, ["a", "b", "c"]) { await queue.enqueue(segmentID: id, text: text) }
+    await queue.finish()
+    let got = await collect(queue.outcomes)
+    #expect(got.map(\.segmentID) == ids)
+    #expect(got.map(\.translation) == ["译:a", nil, "译:c"])
+    #expect(translator.batchSizes == [1, 2])
+    #expect(translator.contexts == [[], ["a"]])
+    #expect(translator.singleContexts == [["a"], ["a"]])
+}
+
+@Test func laggingTogglesAroundThreshold() async {
+    let queue = makeQueue(FakeTranslator(delay: .milliseconds(30)), threshold: 2)
+    for text in ["a", "b", "c", "d"] { await queue.enqueue(segmentID: UUID(), text: text) }
+    await queue.finish()
+    #expect(await collect(queue.lagging) == [true, false])
+    #expect(await collect(queue.outcomes).count == 4)
+}
+
+@Test func laggingStaysSilentBelowThreshold() async {
+    let queue = makeQueue(FakeTranslator(delay: .milliseconds(30)), threshold: 5)
+    for text in ["a", "b", "c", "d"] { await queue.enqueue(segmentID: UUID(), text: text) }
+    await queue.finish()
+    #expect(await collect(queue.lagging) == [])
+}
+
+@Test func contextCarriesPreviousSources() async {
+    let translator = FakeTranslator()
+    let queue = makeQueue(translator, contextSize: 2)
+    var outcomes = queue.outcomes.makeAsyncIterator()
+    for text in ["a", "b", "c", "d"] {
+        await queue.enqueue(segmentID: UUID(), text: text)
+        let outcome = await outcomes.next()
+        #expect(outcome?.translation == "译:" + text)
+    }
+    await queue.finish()
+    #expect(translator.contexts[2] == ["a", "b"])
+    #expect(translator.contexts == [[], ["a"], ["a", "b"], ["b", "c"]])
+}
+
+@Test func finishWaitsForInFlightWork() async {
+    let queue = makeQueue(FakeTranslator(delay: .milliseconds(30)))
+    let ids = [UUID(), UUID()]
+    await queue.enqueue(segmentID: ids[0], text: "a")
+    await queue.enqueue(segmentID: ids[1], text: "b")
+    await queue.finish()
+    // Collecting after finish() terminates only because both streams were finished,
+    // and it can only see what was already yielded before finish() returned.
+    let got = await collect(queue.outcomes)
+    #expect(got.map(\.segmentID) == ids)
+    #expect(got.map(\.translation) == ["译:a", "译:b"])
+    #expect(await collect(queue.lagging) == [])
+}
+
+@Test func enqueueAfterFinishIsIgnored() async {
+    let translator = FakeTranslator()
+    let queue = makeQueue(translator)
+    await queue.finish()
+    await queue.enqueue(segmentID: UUID(), text: "late")
+    #expect(await collect(queue.outcomes).isEmpty)
+    #expect(translator.batchSizes.isEmpty)
+}

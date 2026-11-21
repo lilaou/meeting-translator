@@ -34,6 +34,8 @@ final class FakeTranslator: Translator, Sendable {
     private let failing: Set<String>
     private let delay: Duration
     private let sizes = Mutex<[Int]>([])
+    private let batchCtx = Mutex<[[String]]>([])
+    private let singleCtx = Mutex<[[String]]>([])
 
     init(failing: Set<String> = [], delay: Duration = .zero) {
         self.failing = failing
@@ -42,19 +44,34 @@ final class FakeTranslator: Translator, Sendable {
 
     /// Size of every translateBatch call, in call order.
     var batchSizes: [Int] { sizes.withLock { $0 } }
+    /// `context` received by every translateBatch call, in call order.
+    var contexts: [[String]] { batchCtx.withLock { $0 } }
+    /// `context` received by every direct (non-batch) translate call, in call order.
+    var singleContexts: [[String]] { singleCtx.withLock { $0 } }
 
     func canTranslate(from source: Locale.Language) async -> Bool { true }
 
     func translate(_ text: String, from source: Locale.Language, context: [String]) async throws -> String {
+        singleCtx.withLock { $0.append(context) }
+        return try await translateOne(text)
+    }
+
+    /// Throws without translating anything when any text in the batch is in `failing`.
+    func translateBatch(_ texts: [String], from source: Locale.Language, context: [String]) async throws -> [String] {
+        sizes.withLock { $0.append(texts.count) }
+        batchCtx.withLock { $0.append(context) }
+        if texts.contains(where: failing.contains) {
+            if delay != .zero { try await Task.sleep(for: delay) }
+            throw FakeError.translation
+        }
+        var out: [String] = []
+        for t in texts { out.append(try await translateOne(t)) }
+        return out
+    }
+
+    private func translateOne(_ text: String) async throws -> String {
         if delay != .zero { try await Task.sleep(for: delay) }
         if failing.contains(text) { throw FakeError.translation }
         return "译:" + text
-    }
-
-    func translateBatch(_ texts: [String], from source: Locale.Language, context: [String]) async throws -> [String] {
-        sizes.withLock { $0.append(texts.count) }
-        var out: [String] = []
-        for t in texts { out.append(try await translate(t, from: source, context: context)) }
-        return out
     }
 }
