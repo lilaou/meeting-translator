@@ -131,3 +131,43 @@ private let pending = SegmentStatus.pendingTranslation.rawValue
     try store.setTranslation("壹。", for: id)
     #expect(try store.segments(of: m)[0].translatedText == "壹。")
 }
+
+// MARK: - F8: on-disk durability
+
+/// Everything written through one container is read back by a NEW container opened on the
+/// same file: each write is on disk when it returns, so a killed app only loses the
+/// half-sentence that was not finalized yet.
+@MainActor @Test func writesSurviveReopeningTheOnDiskStore() throws {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MeetingCoreTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let url = dir.appendingPathComponent("transcripts.store")
+    func open() throws -> ModelContainer {
+        try ModelContainer(for: Meeting.self, Segment.self,
+                           configurations: ModelConfiguration(url: url))
+    }
+
+    let meetingID: UUID
+    do {
+        let store = TranscriptStore(container: try open())
+        meetingID = try store.startMeeting(locale: Locale(identifier: "en-US"), at: .now)
+        let one = try store.append(Sentence(text: "One.", start: 0, end: 1), to: meetingID)
+        let two = try store.append(Sentence(text: "Two.", start: 1, end: 2), to: meetingID)
+        _ = try store.append(Sentence(text: "Three.", start: 2, end: 3), to: meetingID)
+        try store.setTranslation("一。", for: one)
+        try store.markTranslationFailed(two)
+        // No endMeeting: the app is "killed" mid-meeting; store and container are dropped here.
+    }
+    #expect(FileManager.default.fileExists(atPath: url.path))
+
+    let reopened = TranscriptStore(container: try open())
+    let segs = try reopened.segments(of: meetingID)
+    #expect(segs.map(\.sourceText) == ["One.", "Two.", "Three."])
+    #expect(segs.map(\.index) == [0, 1, 2])
+    #expect(segs.map(\.translatedText) == ["一。", nil, nil])
+    #expect(segs.map(\.statusRaw) == [
+        SegmentStatus.translated.rawValue, SegmentStatus.translationFailed.rawValue, pending,
+    ])
+    #expect(segs.first?.meeting?.endedAt == nil)
+}
