@@ -1,4 +1,5 @@
 import Testing
+import AVFoundation
 import Foundation
 import Observation
 import SwiftData
@@ -289,6 +290,93 @@ struct SessionCoordinatorTests {
         #expect(segments.map(\.sourceText) == ["After."])
         #expect(segments.map(\.index) == [0])
         #expect(segments.map(\.statusRaw) == [translated])
+    }
+
+    // MARK: - Wrap-up drains the audio tail (F3) and reports late engine errors (F5)
+
+    /// F3: buffers the source captured before `stop()` (some just before `finish()`, and a
+    /// tail it only delivers inside `stop()`) all reach the engine; none is dropped.
+    @MainActor @Test func audioTailCapturedBeforeStopReachesTheEngine() async throws {
+        let tail = 500
+        let audio = FakeAudioSource(tailOnStop: tail)
+        let engine = ManualASREngine()
+        let (c, _) = try makeCoordinator(engine: engine, audio: audio)
+        await c.start(locale: enUS)
+        #expect(c.state == .listening)
+        for _ in 0..<10 { audio.emit(makeFreshBuffer()) }
+        engine.send(.volatile(text: "mid"))
+        await waitUntil { c.volatileText == "mid" }
+        for _ in 0..<10 { audio.emit(makeFreshBuffer()) }   // captured just before finish()
+        await c.finish()
+        #expect(c.state == .idle)
+        #expect(audio.stopCallCount == 1)
+        #expect(engine.receivedBufferCount == 20 + tail)
+    }
+
+    /// F3 fallback: a source whose `stop()` does not finish its stream still lets `finish()`
+    /// complete, after the (shortened) bounded drain wait.
+    @MainActor @Test func finishCompletesWhenStopLeavesTheAudioOpen() async throws {
+        let audio = FakeAudioSource(finishesOnStop: false)
+        let engine = ManualASREngine()
+        let (c, store) = try makeCoordinator(engine: engine, audio: audio)
+        c.audioDrainTimeout = .milliseconds(100)
+        await c.start(locale: enUS)
+        engine.send(.finalized(text: "Done.", range: 0...1))
+        let began = ContinuousClock.now
+        await c.finish()
+        let elapsed = ContinuousClock.now - began
+        #expect(c.state == .idle)
+        #expect(elapsed >= .milliseconds(100))   // it really waited for the source first
+        #expect(elapsed < .milliseconds(1500))
+        #expect(try store.segments(of: try #require(c.meetingID)).map(\.sourceText) == ["Done."])
+    }
+
+    /// F5: the engine throws while draining after `finish()` began.
+    @MainActor @Test func engineErrorAfterFinishBeganIsReported() async throws {
+        let engine = FakeASREngine(events: [.finalized(text: "We start Monday.", range: 0...2)],
+                                   error: FakeError.asr, keepOpen: true)
+        let (c, store) = try makeCoordinator(engine: engine)
+        await c.start(locale: enUS)
+        #expect(c.state == .listening)
+        await c.finish()
+        #expect(isFailed(c.state))
+        let segments = try store.segments(of: try #require(c.meetingID))
+        #expect(segments.map(\.sourceText) == ["We start Monday."])
+        #expect(segments.map(\.statusRaw) == [translated])
+        #expect(segments.first?.meeting?.endedAt != nil)
+    }
+
+    /// F5: the audio ends on its own (interruption) and the engine then throws while draining.
+    @MainActor @Test func engineErrorAfterAudioEndIsReported() async throws {
+        let audio = FakeAudioSource()
+        let engine = FakeASREngine(events: [.finalized(text: "We start Monday.", range: 0...2)],
+                                   error: FakeError.asr, keepOpen: true)
+        let (c, store) = try makeCoordinator(engine: engine, audio: audio)
+        await c.start(locale: enUS)
+        #expect(c.state == .listening)
+        audio.endStream()
+        await waitUntil { c.state != .listening && c.state != .finishing }
+        #expect(isFailed(c.state))
+        let segments = try store.segments(of: try #require(c.meetingID))
+        #expect(segments.map(\.sourceText) == ["We start Monday."])
+        #expect(segments.first?.meeting?.endedAt != nil)
+    }
+
+    /// F5 + R14: an engine error and a save failure end up in one combined message.
+    @MainActor @Test func engineErrorAndSaveFailureAreCombined() async throws {
+        let engine = FakeASREngine(events: [], error: FakeError.asr, keepOpen: true)
+        let (c, store) = try makeCoordinator(engine: engine)
+        await c.start(locale: enUS)
+        let id = try #require(c.meetingID)
+        store.failNextSaves = 1                  // endMeeting's save fails
+        await c.finish()
+        guard case .failed(let message) = c.state else {
+            Issue.record("expected .failed, got \(c.state)")
+            return
+        }
+        #expect(message.contains("出现错误"))
+        #expect(message.contains("会议结束时间未能保存"))
+        #expect(try store.segments(of: id).isEmpty)
     }
 
     @MainActor @Test func translationLagIsExposedAndClears() async throws {

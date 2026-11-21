@@ -40,12 +40,14 @@ struct FakeASREngine: ASREngine {
 }
 
 /// Finishes `continuation` once `audio` ends or the event stream's consumer is gone.
+/// `onBuffer` is called once per audio buffer received, in order.
 func finishWhenAudioEnds(_ audio: AsyncStream<AVAudioPCMBuffer>,
                          _ continuation: AsyncThrowingStream<ASREvent, Error>.Continuation,
-                         throwing error: Error? = nil) {
+                         throwing error: Error? = nil,
+                         onBuffer: (@Sendable () -> Void)? = nil) {
     let audio = AudioHandoff(stream: audio)
     let watcher = Task {
-        for await _ in audio.stream {}
+        for await _ in audio.stream { onBuffer?() }
         continuation.finish(throwing: error)
     }
     continuation.onTermination = { _ in watcher.cancel() }
@@ -164,9 +166,19 @@ struct FakeReadiness: ReadinessChecking {
 
 /// Test-controlled audio source. `stop()` and `endStream()` both finish the stream and are
 /// idempotent; `emit` after the stream finished (or before `start`) is silently dropped.
+/// `stop()` first yields `tailOnStop` fresh buffers (audio captured but not yet delivered,
+/// as the AudioSource contract requires). With `finishesOnStop: false`, `stop()` misbehaves
+/// and leaves the stream open.
 final class FakeAudioSource: AudioSource, Sendable {
     private let continuation = Mutex<AsyncStream<AVAudioPCMBuffer>.Continuation?>(nil)
     private let stops = Mutex(0)
+    private let finishesOnStop: Bool
+    private let tailOnStop: Int
+
+    init(finishesOnStop: Bool = true, tailOnStop: Int = 0) {
+        self.finishesOnStop = finishesOnStop
+        self.tailOnStop = tailOnStop
+    }
 
     var stopCallCount: Int { stops.withLock { $0 } }
 
@@ -187,7 +199,26 @@ final class FakeAudioSource: AudioSource, Sendable {
     }
 
     func stop() async {
-        stops.withLock { $0 += 1 }
-        endStream()
+        let first = stops.withLock { count in
+            defer { count += 1 }
+            return count == 0
+        }
+        if first, tailOnStop > 0 {
+            // Allocated up front, then yielded in one burst, like a capture queue being flushed.
+            let tail = (0..<tailOnStop).map { _ in makeFreshBuffer() }
+            let cont = continuation.withLock { $0 }
+            for buffer in tail {
+                // Each buffer is new and this fake never touches it after yielding it.
+                nonisolated(unsafe) let handoff = buffer
+                cont?.yield(handoff)
+            }
+        }
+        if finishesOnStop { endStream() }
     }
+}
+
+/// A new buffer per call: an audio source must never yield a buffer it touches again.
+func makeFreshBuffer() -> sending AVAudioPCMBuffer {
+    let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)!
+    return AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160)!
 }

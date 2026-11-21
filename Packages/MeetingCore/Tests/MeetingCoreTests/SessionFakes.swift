@@ -5,8 +5,12 @@ import Synchronization
 
 /// Engine driven step by step by the test: `send` yields one event to the live stream.
 /// The stream finishes when the audio stream it was given ends (like a real engine).
+/// `receivedBufferCount` counts the audio buffers that reached the engine.
 final class ManualASREngine: ASREngine, Sendable {
     private let sink = Mutex<AsyncThrowingStream<ASREvent, Error>.Continuation?>(nil)
+    private let buffers = Mutex(0)
+
+    var receivedBufferCount: Int { buffers.withLock { $0 } }
 
     func supportedLocales() async -> [Locale] { [Locale(identifier: "en-US")] }
 
@@ -18,7 +22,9 @@ final class ManualASREngine: ASREngine, Sendable {
         -> AsyncThrowingStream<ASREvent, Error> {
         AsyncThrowingStream { continuation in
             sink.withLock { $0 = continuation }
-            finishWhenAudioEnds(audio, continuation)
+            finishWhenAudioEnds(audio, continuation, onBuffer: { [self] in
+                buffers.withLock { $0 += 1 }
+            })
         }
     }
 

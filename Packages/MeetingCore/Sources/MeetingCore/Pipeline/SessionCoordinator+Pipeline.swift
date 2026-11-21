@@ -42,6 +42,7 @@ extension SessionCoordinator {
         unsavedResults = 0
         lastWriteError = nil
         endMeetingError = nil
+        engineError = nil
         engineAudio = wiring.engineAudio
         forwardTask = wiring.forwarder
         audioEndTask = Task { [weak self] in
@@ -130,61 +131,5 @@ extension SessionCoordinator {
     private func pauseDidElapse() {
         guard state == .listening, let sentence = assembler.flush() else { return }
         submit(sentence)
-    }
-
-    // MARK: - Wrap-up
-
-    private func audioDidEnd() {
-        if state == .listening { beginWrapUp(error: nil) }
-    }
-
-    private func engineDidEnd(error: (any Error)?) {
-        if state == .listening { beginWrapUp(error: error) }
-    }
-
-    /// Starts the single wrap-up (or returns the one already running).
-    @discardableResult
-    func beginWrapUp(error: (any Error)?) -> Task<Void, Never> {
-        if let wrapUpTask { return wrapUpTask }
-        state = .finishing
-        let task = Task { await self.wrapUp(error: error) }
-        wrapUpTask = task
-        return task
-    }
-
-    private func wrapUp(error: (any Error)?) async {
-        pauseTask?.cancel()
-        await pauseTask?.value
-        await audio.stop()
-        // Defensive: the engine must see the audio end even if the source never finishes.
-        engineAudio?.finish()
-        forwardTask?.cancel()
-        await audioEndTask?.value
-        await engineTask?.value          // every remaining final is handled before the flush
-        if let sentence = assembler.flush() { submit(sentence) }
-        volatileText = ""
-        await enqueueTail?.value
-        await queue?.finish()
-        await outcomeTask?.value         // every outcome is in the store
-        await laggingTask?.value
-        isTranslationLagging = false
-        if let meetingID {
-            do { try store.endMeeting(meetingID, at: Date()) } catch { endMeetingError = error }
-        }
-        clearPipeline()
-        state = finalState(trigger: error)
-    }
-
-    private func clearPipeline() {
-        queue = nil
-        engineAudio = nil
-        forwardTask = nil
-        audioEndTask = nil
-        engineTask = nil
-        outcomeTask = nil
-        laggingTask = nil
-        pauseTask = nil
-        enqueueTail = nil
-        wrapUpTask = nil
     }
 }

@@ -5,11 +5,13 @@ import Observation
 /// 把整条管线串起来：音频 → 识别 → 断句 → 存储 + 翻译队列 → 回写译文。
 ///
 /// 收尾只有一条路径（`finish()`、音频流结束、识别流结束或抛错，先到者触发，只执行一次）：
-/// `finishing` → 停音频 → 等识别流结束 → `flush()` → 入队 → `queue.finish()` → 回写全部结果
-/// → `endMeeting` → `idle`（识别流抛错触发时为 `failed`，已存记录保留）。
+/// `finishing` → 停音频 → 等音频尾部送完 → 等识别流结束 → `flush()` → 入队 → `queue.finish()` → 回写全部结果
+/// → `endMeeting` → `idle`（识别流抛错——包括收尾期间——时为 `failed`，已存记录保留）。
 @MainActor @Observable public final class SessionCoordinator {
-    public enum State: Equatable { case idle, preparing, listening, finishing, failed(String) }
+    public enum State: Equatable, Sendable { case idle, preparing, listening, finishing, failed(String) }
 
+    // `public internal(set)`: the `+Pipeline`/`+WrapUp` extensions in this module write these;
+    // code outside the module can only read them.
     public internal(set) var state: State = .idle
     /// 当前临时原文；有定稿到达时清空
     public internal(set) var volatileText = ""
@@ -42,6 +44,10 @@ import Observation
     @ObservationIgnored var unsavedResults = 0
     @ObservationIgnored var lastWriteError: (any Error)?
     @ObservationIgnored var endMeetingError: (any Error)?
+    /// Error the recognition stream ended with, whenever it ended (also during wrap-up).
+    @ObservationIgnored var engineError: (any Error)?
+    /// Wrap-up fallback bound for the audio drain; internal so tests can shorten it.
+    @ObservationIgnored var audioDrainTimeout = SessionCoordinator.defaultAudioDrainTimeout
 
     public init(engine: any ASREngine, translator: any Translator, audio: any AudioSource,
                 readiness: any ReadinessChecking, store: TranscriptStore, config: PipelineConfig) {
@@ -90,16 +96,17 @@ import Observation
     /// 仅在 `listening` 时触发收尾；收尾已在进行时等它完成。返回时会议已结束、译文已全部回写。
     public func finish() async {
         switch state {
-        case .listening: await beginWrapUp(error: nil).value
+        case .listening: await beginWrapUp().value
         case .finishing: await wrapUpTask?.value
         case .idle, .preparing, .failed: return
         }
     }
 
-    /// Final state after wrap-up: write failures override the trigger, so no loss is silent.
-    func finalState(trigger: (any Error)?) -> State {
+    /// Final state after wrap-up: an engine error and write failures are combined into one
+    /// `.failed` message, so no loss is silent.
+    func finalState() -> State {
         var problems: [String] = []
-        if let trigger { problems.append(Self.hint(for: trigger)) }
+        if let engineError { problems.append(Self.hint(for: engineError)) }
         let reason = lastWriteError.map(Self.writeReason) ?? ""
         if unsavedSentences > 0 { problems.append("有 \(unsavedSentences) 句未能保存：\(reason)") }
         if unsavedResults > 0 { problems.append("有 \(unsavedResults) 条翻译结果未能保存：\(reason)") }
