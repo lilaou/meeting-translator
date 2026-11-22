@@ -128,21 +128,5 @@ import Observation
         }
     }
 
-    static func hint(for error: any Error) -> String {
-        switch error {
-        case let failure as ReadinessFailure:
-            switch failure {
-            case .speechPackMissing: return "语音识别离线包未安装，请先下载"
-            case .translationPackMissing: return "翻译离线包未安装，请先下载"
-            case .selfTestFailed(let detail): return "离线自检未通过：\(detail)"
-            }
-        case let failure as AudioCaptureError:
-            switch failure {
-            case .permissionDenied: return "没有麦克风权限，请在系统设置中允许"
-            case .engineStartFailed(let detail): return "无法启动录音：\(detail)"
-            }
-        default:
-            return "出现错误：\(error.localizedDescription)"
-        }
-    }
+    static func hint(for error: any Error) -> String { UserMessages.hint(for: error) }
 }
