@@ -11,7 +11,9 @@ import Speech
 /// - Speech pack state comes from `SpeechTranscriber`'s installed and supported locales,
 ///   the same lists `AppleSpeechEngine` uses.
 /// - Translation pack state is always that of the Apple pack into Simplified Chinese
-///   (`AppleTranslator`), whatever translator is injected.
+///   (`AppleTranslator`), whatever translator is injected: `translationState` and
+///   `preflight` ignore `translator`, which only `selfTest` uses. Harmless while Apple's is
+///   the only translator; revisit in Task 11 / Phase 2 if a non-Apple translator arrives.
 /// - `installSpeechPack` only installs the speech pack; translation packs are downloaded by
 ///   the app's onboarding (`.translationTask`).
 /// - `selfTest` recognizes synthesized speech ("The meeting will start at nine tomorrow

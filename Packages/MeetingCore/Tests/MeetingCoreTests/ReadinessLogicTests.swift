@@ -1,59 +1,6 @@
-import AVFoundation
 import Foundation
-import Synchronization
 import Testing
 @testable import MeetingCore
-
-/// Fixed pack states; records the order in which they were asked for.
-final class FakePackStates: PackStateProviding, Sendable {
-    let speech: PackState
-    let translation: PackState
-    private let log = Mutex<[String]>([])
-
-    init(speech: PackState, translation: PackState) {
-        self.speech = speech
-        self.translation = translation
-    }
-
-    var queries: [String] { log.withLock { $0 } }
-
-    func speechState(for locale: Locale) async -> PackState {
-        log.withLock { $0.append("speech") }
-        return speech
-    }
-
-    func translationState(from source: Locale.Language) async -> PackState {
-        log.withLock { $0.append("translation") }
-        return translation
-    }
-}
-
-/// One fresh buffer in the requested format, or `error`.
-struct FakeSelfTestAudio: SelfTestAudioProvider {
-    var error: FakeError?
-
-    func speech(_ sentence: String, format: AVAudioFormat) async throws -> AsyncStream<AVAudioPCMBuffer> {
-        if let error { throw error }
-        let (stream, sink) = AsyncStream<AVAudioPCMBuffer>.makeStream()
-        // A new buffer that nothing here touches again.
-        nonisolated(unsafe) let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160)!
-        sink.yield(buffer)
-        sink.finish()
-        return stream
-    }
-}
-
-/// Returns `output` for every text (or throws `error`).
-struct StubTranslator: Translator {
-    var output = ""
-    var error: FakeError?
-
-    func canTranslate(from source: Locale.Language) async -> Bool { true }
-    func translate(_ text: String, from source: Locale.Language, context: [String]) async throws -> String {
-        if let error { throw error }
-        return output
-    }
-}
 
 private let english = Locale(identifier: "en-US")
 
@@ -83,6 +30,25 @@ private func failureReason(_ body: () async throws -> Void) async -> String? {
 
 @Test func selfTestPassesWithMeetingInTheTranscriptAndAChineseTranslation() async throws {
     try await logic().selfTest(locale: english)
+}
+
+@Test func selfTestTranslatesTheFixedSentenceFromTheLocaleLanguage() async throws {
+    let translator = RecordingTranslator()
+    let british = Locale(identifier: "en-GB")
+    try await logic(translator: translator).selfTest(locale: british)
+    #expect(translator.calls.count == 1)
+    #expect(translator.calls.first?.text == "The meeting will start at nine.")
+    #expect(translator.calls.first?.source == british.language)
+}
+
+@Test func selfTestAsksForTheSpokenSentenceInTheEnginePreferredFormat() async throws {
+    let audio = FakeSelfTestAudio()
+    try await logic(audio: audio).selfTest(locale: english)
+    // FakeASREngine prefers 16 kHz mono.
+    #expect(audio.requests.count == 1)
+    #expect(audio.requests.first?.sentence == "The meeting will start at nine tomorrow morning.")
+    #expect(audio.requests.first?.sampleRate == 16_000)
+    #expect(audio.requests.first?.channels == 1)
 }
 
 @Test func selfTestJoinsFinalsAndIgnoresVolatileText() async throws {
