@@ -38,9 +38,9 @@ struct LiveCaptionView: View {
             // `Query` and a fresh follow state. Without a meeting (before the first start,
             // or a failed start) there is nothing to query.
             if let meetingID = coordinator.meetingID {
-                // The list reads `volatileText` itself, so partial-recognition updates do not
-                // re-render this view or rebuild the `Query`.
-                CaptionListView(meetingID: meetingID)
+                // Only `VolatileLine` reads `volatileText`, so partial-recognition updates do
+                // not re-render this view, rebuild the `Query` or re-map the rows.
+                CaptionListView(meetingID: meetingID) { VolatileLine() }
                     .id(meetingID)
             } else {
                 Color.clear
@@ -124,7 +124,7 @@ struct LiveCaptionContent<ListContent: View>: View {
     }
 }
 
-extension LiveCaptionContent where ListContent == CaptionListContent {
+extension LiveCaptionContent where ListContent == CaptionListContent<Text> {
     @MainActor fileprivate static func sample(
         _ state: SessionCoordinator.State, lagging: Bool = false, started: Bool = true,
         rows: [CaptionRow] = (1...3).map { .sample($0) }, volatile: String = ""
@@ -132,7 +132,9 @@ extension LiveCaptionContent where ListContent == CaptionListContent {
         Self(state: state, isLagging: lagging,
              startedAt: started ? .now.addingTimeInterval(-125) : nil,
              direction: "英语 → 中文", start: {}, finish: {}, checkPacks: {}) {
-            CaptionListContent(rows: rows, volatileText: volatile)
+            CaptionListContent(rows: rows) {
+                Text(volatile).font(.title3).foregroundStyle(.secondary)
+            }
         }
     }
 }
