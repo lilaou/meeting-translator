@@ -179,3 +179,81 @@ private func model(_ readiness: ScriptedReadiness) -> OnboardingModel {
     #expect(readiness.count(.selfTest) == 2)
     #expect(readiness.count(.install) == 0)
 }
+
+// MARK: - cancellation of the calling task (R11a3-1)
+
+@MainActor @Test func cancellingTheTaskThatCalledRefreshCancelsTheSelfTest() async {
+    let readiness = ScriptedReadiness(speech: .installed, translation: .installed, blocking: [.selfTest])
+    weak var released: OnboardingModel?
+    do {
+        let onboarding = model(readiness)
+        released = onboarding
+        let caller = Task { await onboarding.refresh() }
+        await readiness.entered(.selfTest)
+        caller.cancel()
+        await caller.value // returns once the forwarded cancel has ended the job
+        #expect(onboarding.step == .needsSetup(speech: .installed, translation: .installed))
+        #expect(!onboarding.isBusy)
+        #expect(readiness.inFlight == 0)
+        onboarding.cancel() // an explicit cancel on top of the forwarded one is a no-op
+        onboarding.cancel()
+        #expect(onboarding.step == .needsSetup(speech: .installed, translation: .installed))
+        #expect(readiness.count(.selfTest) == 1)
+    }
+    #expect(released == nil) // no cycle through the cancellation handler
+}
+
+@MainActor @Test func cancellingTheTaskThatCalledStartSetupCancelsTheInstall() async {
+    let readiness = ScriptedReadiness(speech: .notInstalled, translation: .notInstalled,
+                                      blocking: [.install])
+    let onboarding = model(readiness)
+    await onboarding.refresh()
+    let caller = Task { await onboarding.startSetup() }
+    await readiness.entered(.install)
+    onboarding.cancel() // explicit and forwarded cancel together
+    caller.cancel()
+    await caller.value
+    #expect(onboarding.step == .needsSetup(speech: .notInstalled, translation: .notInstalled))
+    #expect(!onboarding.isBusy)
+    #expect(readiness.inFlight == 0)
+}
+
+@MainActor @Test func cancellingACallThatWasIgnoredLeavesTheRunningJobAlone() async {
+    let readiness = ScriptedReadiness(speech: .installed, translation: .installed, blocking: [.selfTest])
+    let onboarding = model(readiness)
+    let first = Task { await onboarding.refresh() }
+    await readiness.entered(.selfTest)
+    let second = Task { await onboarding.refresh() }
+    second.cancel()
+    await second.value // returned at once: a job was running
+    #expect(onboarding.step == .selfTesting)
+    readiness.release(.selfTest)
+    await first.value
+    #expect(onboarding.step == .ready)
+    #expect(readiness.count(.selfTest) == 1)
+}
+
+@MainActor @Test func aCancelledWaiterBehindADrainingJobStartsAndCancelsNothing() async {
+    let readiness = ScriptedReadiness(speech: .notInstalled, translation: .notInstalled,
+                                      blocking: [.install], honorsCancellation: false)
+    let onboarding = model(readiness)
+    await onboarding.refresh()
+    let first = Task { await onboarding.startSetup() }
+    await readiness.entered(.install)
+    onboarding.cancel()
+    let waiter = Task { await onboarding.refresh() }
+    await waitUntil { onboarding.callsWaitingForCancelledJob == 1 }
+    waiter.cancel() // cannot stop the draining job; once it ends, the waiter starts nothing
+    readiness.release(.install)
+    await first.value
+    await waiter.value
+    #expect(onboarding.step == .needsSetup(speech: .notInstalled, translation: .notInstalled))
+    #expect(readiness.count(.speechState) == 1) // only the first refresh queried
+    #expect(!onboarding.isBusy)
+    #expect(onboarding.callsWaitingForCancelledJob == 0)
+
+    // A later call works normally.
+    await onboarding.startSetup()
+    #expect(onboarding.step == .awaitingTranslationDownload)
+    #expect(readiness.maxInFlight == 1)
+}

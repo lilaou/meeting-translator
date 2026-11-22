@@ -88,9 +88,13 @@ struct ThrowingTranslator: Translator {
 }
 
 /// Blocks every `translate` until the calling task is cancelled, then throws
-/// `CancellationError`. `entered` opens when the first request arrives.
+/// `CancellationError` (or `errorOnCancel`, like a framework that reports a cancellation with
+/// its own error). `entered` opens when the first request arrives.
 final class BlockingTranslator: Translator, Sendable {
     let entered = Gate()
+    let errorOnCancel: (any Error)?
+
+    init(errorOnCancel: (any Error)? = nil) { self.errorOnCancel = errorOnCancel }
 
     func canTranslate(from source: Locale.Language) async -> Bool { true }
     func translate(_ text: String, from source: Locale.Language, context: [String]) async throws -> String {
@@ -101,6 +105,7 @@ final class BlockingTranslator: Translator, Sendable {
         } onCancel: {
             release.open()
         }
+        if let errorOnCancel, Task.isCancelled { throw errorOnCancel }
         try Task.checkCancellation()
         return "会议九点开始。"
     }
@@ -124,5 +129,30 @@ final class SilentASREngine: ASREngine, Sendable {
             continuation.onTermination = { [continuation] _ in _ = continuation }
             entered.open()
         }
+    }
+}
+
+/// An engine whose `preferredFormat` blocks until the calling task is cancelled and then
+/// throws `errorOnCancel` (a domain error, not `CancellationError`). `entered` opens on the call.
+final class StallingFormatEngine: ASREngine, Sendable {
+    let entered = Gate()
+    let errorOnCancel: any Error
+
+    init(errorOnCancel: any Error) { self.errorOnCancel = errorOnCancel }
+
+    func supportedLocales() async -> [Locale] { [Locale(identifier: "en-US")] }
+    func preferredFormat(for locale: Locale) async throws -> AVAudioFormat {
+        let release = Gate()
+        await withTaskCancellationHandler {
+            entered.open()
+            await release.wait()
+        } onCancel: {
+            release.open()
+        }
+        throw errorOnCancel
+    }
+    func transcribe(_ audio: AsyncStream<AVAudioPCMBuffer>, locale: Locale)
+        -> AsyncThrowingStream<ASREvent, Error> {
+        AsyncThrowingStream { $0.finish() }
     }
 }

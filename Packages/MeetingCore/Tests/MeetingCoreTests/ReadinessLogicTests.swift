@@ -197,3 +197,21 @@ private func throwsCancellation(_ body: () async throws -> Void) async -> Bool {
     run.cancel()
     #expect(await throwsCancellation { try await run.value })
 }
+
+@Test func aDomainErrorFromACancelledTranslatorIsStillACancellation() async {
+    let translator = BlockingTranslator(errorOnCancel: FakeError.translation)
+    let readiness = logic(translator: translator)
+    let run = Task { try await readiness.selfTest(locale: english) }
+    await translator.entered.wait()
+    run.cancel()
+    #expect(await throwsCancellation { try await run.value })
+}
+
+@Test func aDomainErrorFromACancelledEngineIsStillACancellation() async {
+    let engine = StallingFormatEngine(errorOnCancel: FakeError.asr)
+    let readiness = logic(engine: engine)
+    let run = Task { try await readiness.selfTest(locale: english) }
+    await engine.entered.wait()
+    run.cancel()
+    #expect(await throwsCancellation { try await run.value })
+}

@@ -3,23 +3,38 @@ import Observation
 
 /// The state machine behind the onboarding screen (one source language): checks the two
 /// language packs, installs the speech pack, hands the translation pack download to the view,
-/// then runs the self-test. It owns no UI.
+/// then runs the self-test. It owns no UI. Never starts the translation pack download itself;
+/// calls `selfTest` only right after both packs reported `.installed`.
 ///
-/// At most one job (refresh, setup, or the continuation after the view's download) runs at a
-/// time; a call that arrives while one is running, or in a step where it does not apply, does
-/// nothing. After `cancel()` the next call first waits for the cancelled job to end, so two jobs
-/// never overlap. The model never starts the translation pack download itself and only calls
-/// `selfTest` right after both packs reported `.installed`.
+/// What the view must do:
+/// - Call `refresh()` when the screen appears: nothing is queried until then (the initial
+///   `.checking` is idle), and again after a `cancel()` that left `.checking`.
+/// - On `.awaitingTranslationDownload`, download the translation pack itself with SwiftUI's
+///   `.translationTask` + `prepareTranslation()` (only a view can), then report EXACTLY ONCE
+///   through `translationDownloadFinished(error:)`.
+/// - Call `cancel()` when the screen disappears (idempotent). Cancelling the task that started
+///   a job (e.g. the view's `.task`) also cancels that job, but `.awaitingTranslationDownload`
+///   has no job: `cancel()` is the only way out of it, as `refresh()` is ignored there.
+///
+/// At most one job (refresh, setup, or the continuation after the download) runs at a time; a
+/// call that arrives while one runs, or in a step where it does not apply, returns at once and
+/// does nothing. A call that arrives while a cancelled job is still ending (an install that
+/// ignores cancellation) waits for it first, so jobs never overlap; while waiting it cannot be
+/// cancelled into stopping someone else's job, and if its task was cancelled it starts nothing.
 @MainActor @Observable public final class OnboardingModel {
+    /// Where the onboarding is; the view renders it.
     public enum Step: Equatable, Sendable {
-        /// Querying the pack states.
+        /// The initial step (idle until `refresh()` is called), and the step while the pack
+        /// states are being queried.
         case checking
         /// Setup is needed (or the self-test has not passed yet); `startSetup()` begins it.
         case needsSetup(speech: PackState, translation: PackState)
+        /// The speech pack is being installed (`cancel()` stops it).
         case installingSpeech
         /// The view must now download the translation pack (`.translationTask` +
-        /// `prepareTranslation()`) and then call `translationDownloadFinished(error:)`.
+        /// `prepareTranslation()`) and then call `translationDownloadFinished(error:)` once.
         case awaitingTranslationDownload
+        /// The self-test runs (`cancel()` stops it; a cancellation is never a failure).
         case selfTesting
         /// Both packs are installed and the self-test passed: usable offline.
         case ready
@@ -27,12 +42,13 @@ import Observation
         case failed(String)
     }
 
-    public private(set) var step: Step = .checking
+    /// The current step (observable).
+    public internal(set) var step: Step = .checking
 
-    @ObservationIgnored private let readiness: any ReadinessChecking
-    @ObservationIgnored private let locale: Locale
+    @ObservationIgnored let readiness: any ReadinessChecking
+    @ObservationIgnored let locale: Locale
     /// The pack states of the last query: where `cancel()` returns to.
-    @ObservationIgnored private var known: (speech: PackState, translation: PackState)?
+    @ObservationIgnored var known: (speech: PackState, translation: PackState)?
     /// The running job (at most one); cleared by the job itself as its last step.
     @ObservationIgnored private var job: Task<Void, Never>?
     /// `job` was cancelled and is only draining (its results are ignored).
@@ -49,19 +65,23 @@ import Observation
         self.locale = locale
     }
 
-    /// Queries both pack states: either `.unsupported` → `.failed`; both `.installed` → runs the
-    /// self-test (`.selfTesting` → `.ready` or `.failed`); otherwise `.needsSetup`. Ignored while
-    /// a job runs and while the view downloads the translation pack.
+    /// Call when the screen appears. Queries both pack states: either `.unsupported` →
+    /// `.failed`; both `.installed` → self-test (`.selfTesting` → `.ready` or `.failed`);
+    /// otherwise `.needsSetup`. Ignored while a job runs and during
+    /// `.awaitingTranslationDownload`. Cancelling the calling task cancels the job it started.
     public func refresh() async { await run(.check) }
 
-    /// From `.needsSetup` only: installs the speech pack if needed (`.installingSpeech`), then
-    /// re-queries: translation pack missing → `.awaitingTranslationDownload` (the view takes
-    /// over); both installed → self-test.
+    /// From `.needsSetup` only: installs the speech pack if the state cached in the step says
+    /// it is missing (`.installingSpeech`; after a cancelled install that actually completed,
+    /// one redundant install is possible), then re-queries: translation pack missing →
+    /// `.awaitingTranslationDownload` (the view takes over); both installed → self-test.
+    /// Cancelling the calling task cancels the job it started.
     public func startSetup() async { await run(.setUp) }
 
-    /// From `.awaitingTranslationDownload` only; the view calls it when its download ended.
-    /// An error fails (a `CancellationError` returns to `.needsSetup`); success re-queries the
-    /// packs and runs the self-test only if both report `.installed`, else fails.
+    /// The view reports its translation pack download here, EXACTLY ONCE per
+    /// `.awaitingTranslationDownload`; ignored in any other step (so a report after `cancel()`
+    /// is dropped). A `CancellationError` returns to `.needsSetup`; another error fails; success
+    /// re-queries both packs and runs the self-test only if both report `.installed`, else fails.
     public func translationDownloadFinished(error: (any Error)?) async {
         await run(.downloadFinished(error))
     }
@@ -71,8 +91,8 @@ import Observation
 
     /// Cancels the running install, query or self-test (a cancellation is never a failure) or
     /// stops waiting for the view's download; the step returns to `.needsSetup` with the last
-    /// known pack states (`.checking` if none is known yet; `refresh()` re-queries). The view
-    /// must stop its own download too. Does nothing otherwise; safe to call twice.
+    /// known pack states (`.checking` if none is known yet: call `refresh()` again). The view
+    /// must stop its own download too. Does nothing otherwise; safe to call repeatedly.
     public func cancel() {
         if let job, !jobCancelled {
             job.cancel()
@@ -83,7 +103,7 @@ import Observation
         step = stepAfterCancel
     }
 
-    private enum Job: Sendable { case check, setUp, downloadFinished((any Error)?), retry }
+    enum Job: Sendable { case check, setUp, downloadFinished((any Error)?), retry }
 
     private func accepts(_ request: Job) -> Bool {
         switch (request, step) {
@@ -101,100 +121,25 @@ import Observation
             await running.value
             callsWaitingForCancelledJob -= 1
         }
-        guard accepts(request) else { return }
+        // A caller whose task was cancelled (e.g. while it waited above) starts nothing.
+        guard !Task.isCancelled, accepts(request) else { return }
         let task = Task {
             await perform(request)
             (job, jobCancelled) = (nil, false) // last step: whoever awaits the job sees it idle
         }
         job = task
         jobCancelled = false
-        await task.value
-    }
-
-    private func perform(_ request: Job) async {
-        switch request {
-        case .check, .retry: await check()
-        case .setUp: await setUp()
-        case .downloadFinished(let error?): settle(error, UserMessages.translationDownloadFailed(error))
-        case .downloadFinished(nil): await proceed(afterDownload: true)
+        // Only the caller that started the job forwards its cancellation to it.
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: { [weak self] in
+            Task { @MainActor in self?.cancel(task) }
         }
     }
 
-    private func check() async {
-        step = .checking
-        guard let states = await query() else { return }
-        if let message = unsupported(states) { step = .failed(message) }
-        else if states.speech == .installed, states.translation == .installed {
-            await selfTest()
-        } else {
-            step = .needsSetup(speech: states.speech, translation: states.translation)
-        }
-    }
-
-    private func setUp() async {
-        guard case .needsSetup(let speech, _) = step else { return }
-        if speech != .installed {
-            step = .installingSpeech
-            do {
-                try await readiness.installSpeechPack(for: locale)
-            } catch {
-                return settle(error, UserMessages.speechInstallFailed(error))
-            }
-            guard !Task.isCancelled else { return }
-        }
-        await proceed(afterDownload: false)
-    }
-
-    /// Re-queries after the speech install or the view's download; never calls `selfTest`
-    /// unless both packs report `.installed`.
-    private func proceed(afterDownload: Bool) async {
-        guard let states = await query() else { return }
-        if let message = unsupported(states) { step = .failed(message) }
-        else if states.speech != .installed {
-            step = .failed(UserMessages.stillMissing(UserMessages.speechPack))
-        } else if states.translation != .installed {
-            step = afterDownload ? .failed(UserMessages.stillMissing(UserMessages.translationPack))
-                : .awaitingTranslationDownload
-        } else {
-            await selfTest()
-        }
-    }
-
-    private func selfTest() async {
-        step = .selfTesting
-        do {
-            try await readiness.selfTest(locale: locale)
-        } catch {
-            return settle(error, UserMessages.selfTestFailed(error))
-        }
-        guard !Task.isCancelled else { return }
-        step = .ready
-    }
-
-    /// Both pack states, or nil when the job was cancelled meanwhile.
-    private func query() async -> (speech: PackState, translation: PackState)? {
-        let speech = await readiness.speechState(for: locale)
-        guard !Task.isCancelled else { return nil }
-        let translation = await readiness.translationState(from: locale.language)
-        guard !Task.isCancelled else { return nil }
-        known = (speech, translation)
-        return (speech, translation)
-    }
-
-    private func unsupported(_ states: (speech: PackState, translation: PackState)) -> String? {
-        if states.speech == .unsupported { return UserMessages.speechUnsupported(locale) }
-        if states.translation == .unsupported { return UserMessages.translationUnsupported(locale) }
-        return nil
-    }
-
-    /// Ends a job on `error`: a cancelled job changes nothing (`cancel()` already set the step);
-    /// a `CancellationError` is never a failure; anything else fails with `message`.
-    private func settle(_ error: any Error, _ message: String) {
-        guard !Task.isCancelled else { return }
-        step = error is CancellationError ? stepAfterCancel : .failed(message)
-    }
-
-    private var stepAfterCancel: Step {
-        known.map { .needsSetup(speech: $0.speech, translation: $0.translation) } ?? .checking
+    /// `cancel()`, but only while `task` is still the running, not yet cancelled job.
+    private func cancel(_ task: Task<Void, Never>) {
+        guard job == task, !jobCancelled else { return }
+        cancel()
     }
 }

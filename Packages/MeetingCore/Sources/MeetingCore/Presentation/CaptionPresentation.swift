@@ -14,7 +14,8 @@ public enum CaptionStrings {
     public static let backToLatest = "回到最新"
 
     /// The translation direction, e.g. "英语 → 中文" for `en-US`. The target is always
-    /// Simplified Chinese; an unknown source language shows its code.
+    /// Simplified Chinese; an unnamed source language shows its code (or the locale
+    /// identifier), and a locale without either shows "未知语言".
     public static func direction(from source: Locale) -> String {
         "\(languageName(of: source)) → 中文"
     }
@@ -22,13 +23,18 @@ public enum CaptionStrings {
     static let pendingTranslation = "…"
     static let translationFailed = "（翻译失败）"
     static let interruption = "（录音中断）"
+    static let unknownLanguage = "未知语言"
 
     private static let chinese = Locale(identifier: "zh-Hans")
 
-    /// The Chinese name of `locale`'s language ("英语"), or its code when unknown.
-    static func languageName(of locale: Locale) -> String {
-        guard let code = locale.language.languageCode?.identifier else { return locale.identifier }
-        return chinese.localizedString(forLanguageCode: code) ?? code
+    /// The Chinese name of `locale`'s language ("英语"), else its code, else the locale
+    /// identifier, else "未知语言"; never empty. `names` looks a code up (injectable for tests).
+    static func languageName(of locale: Locale,
+                             names: (String) -> String? = { chinese.localizedString(forLanguageCode: $0) })
+        -> String {
+        let code = locale.language.languageCode?.identifier ?? ""
+        let candidates = [code.isEmpty ? nil : names(code), code, locale.identifier]
+        return candidates.compactMap { $0 }.first { !$0.isEmpty } ?? unknownLanguage
     }
 }
 
@@ -41,12 +47,16 @@ public enum CaptionFormatting {
         // Capped far beyond any meeting so the conversion to Int can never trap.
         let seconds = interval.isFinite && interval > 0 ? Int(min(interval, 1e12)) : 0
         let hours = seconds / 3_600, minutes = seconds / 60 % 60
-        return String(format: "%02d:%02d:%02d", hours, minutes, seconds % 60)
+        return [hours, minutes, seconds % 60].map(twoDigits).joined(separator: ":")
     }
+
+    /// At least two digits, zero-padded ("07", "42", "100").
+    private static func twoDigits(_ value: Int) -> String { value < 10 ? "0\(value)" : "\(value)" }
 }
 
 /// What one caption row shows for a stored segment.
 public struct SegmentDisplay: Equatable, Sendable {
+    /// Which of the row's presentations applies.
     public enum Kind: Equatable, Sendable {
         /// The translation is shown.
         case translated
@@ -58,6 +68,7 @@ public struct SegmentDisplay: Equatable, Sendable {
         case interruption
     }
 
+    /// How the row is presented.
     public let kind: Kind
     /// The recognized text (shown small, above).
     public let sourceText: String

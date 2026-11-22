@@ -52,7 +52,7 @@ struct ReadinessLogic: Sendable {
 
     /// Recognizes the sample speech and translates the sample sentence. A `CancellationError`
     /// (from the audio provider, the engine, the translator, or the task being cancelled while
-    /// recognition or translation runs) propagates unchanged: callers treat it as "cancelled",
+    /// recognition or translation runs, whatever error that then produced) propagates: callers treat it as "cancelled",
     /// not as a failure. Any other problem, including another error of the engine, translator
     /// or audio provider, becomes `ReadinessFailure.selfTestFailed` with a readable reason.
     func selfTest(locale: Locale) async throws {
@@ -84,10 +84,13 @@ struct ReadinessLogic: Sendable {
         text.unicodeScalars.contains { $0.properties.isUnifiedIdeograph }
     }
 
-    /// `error` itself when it is a `CancellationError`, otherwise `selfTestFailed(prefix + reason)`.
+    /// A cancellation when `error` is a `CancellationError` or the task was cancelled (a real
+    /// framework may report a cancellation with an error of its own); otherwise
+    /// `selfTestFailed(prefix + reason)`.
     private static func failure(_ prefix: String, _ error: any Error) -> any Error {
-        error is CancellationError ? error
-            : ReadinessFailure.selfTestFailed(prefix + error.localizedDescription)
+        if error is CancellationError { return error }
+        if Task.isCancelled { return CancellationError() }
+        return ReadinessFailure.selfTestFailed(prefix + error.localizedDescription)
     }
 
     /// The final texts of recognizing the sample speech, joined with spaces.

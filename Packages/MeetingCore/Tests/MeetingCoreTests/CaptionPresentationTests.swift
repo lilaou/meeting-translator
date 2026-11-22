@@ -18,8 +18,8 @@ import Testing
     #expect(CaptionStrings.direction(from: Locale(identifier: "ja-JP")) == "日语 → 中文")
 }
 
-@Test func directionFallsBackToTheCodeForAnUnknownLanguage() {
-    #expect(CaptionStrings.direction(from: Locale(identifier: "qaa")) == "qaa → 中文")
+@Test func directionNeverHasAnEmptySourceName() {
+    #expect(CaptionStrings.direction(from: Locale(identifier: "")) == "未知语言 → 中文")
 }
 
 // MARK: - elapsed time
@@ -112,4 +112,13 @@ func elapsedTextIsZeroPaddedHoursMinutesSeconds(seconds: Double, expected: Strin
     #expect(!state.showsBackToLatest)
     state.jumpToLatest()
     #expect(state.isFollowing)
+}
+
+@Test func languageNameFallsBackWhenTheSystemHasNoName() {
+    let noNames: (String) -> String? = { _ in nil }
+    #expect(CaptionStrings.languageName(of: Locale(identifier: "en-US"), names: noNames) == "en")
+    #expect(CaptionStrings.languageName(of: Locale(identifier: "en-US"), names: { _ in "" }) == "en")
+    #expect(CaptionStrings.languageName(of: Locale(identifier: ""), names: noNames) == "未知语言")
+    #expect(CaptionStrings.languageName(of: Locale(identifier: "en-US"), names: { $0 == "en" ? "英语" : nil })
+            == "英语")
 }

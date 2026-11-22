@@ -2,8 +2,10 @@
 /// bottom stops following (and shows "回到最新"); scrolling back to the bottom or jumping to
 /// the latest caption resumes it.
 public struct ScrollFollowState: Equatable, Sendable {
+    /// The list scrolls along with new content.
     public private(set) var isFollowing = true
 
+    /// Following, as at the start of a meeting.
     public init() {}
 
     /// The user scrolled; `isAtBottom` is whether the newest caption is now in view.
