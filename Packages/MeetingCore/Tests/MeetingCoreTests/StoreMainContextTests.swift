@@ -91,6 +91,26 @@ private let enUS = Locale(identifier: "en-US")
     #expect(names == ["Meeting", "Segment"])
 }
 
+/// Snapshot of the stored shape of `SchemaV1`: every attribute and relationship name of both
+/// models. Records already on a device were written with this shape, so it must never change.
+@MainActor @Test func schemaV1ShapeIsPinned() throws {
+    let message: Comment = "a model property changed — add SchemaV2 and a migration stage instead of editing V1"
+    let entities = try MeetingStorage.makeInMemoryContainer().schema.entities
+    let byName = Dictionary(uniqueKeysWithValues: entities.map { ($0.name, $0) })
+    let meeting = try #require(byName["Meeting"])
+    let segment = try #require(byName["Segment"])
+    #expect(Set(meeting.attributes.map(\.name))
+            == ["id", "title", "startedAt", "endedAt", "sourceLocaleID"], message)
+    #expect(Set(meeting.relationships.map(\.name)) == ["segments"], message)
+    #expect(Set(segment.attributes.map(\.name))
+            == ["id", "index", "sourceText", "translatedText", "startTime", "endTime", "statusRaw"],
+            message)
+    #expect(Set(segment.relationships.map(\.name)) == ["meeting"], message)
+    // Nothing stored beyond these attributes and relationships.
+    #expect(meeting.properties.count == 6, message)
+    #expect(segment.properties.count == 8, message)
+}
+
 /// Opening the same on-disk store a second time through the factory works, whether the
 /// first container is still alive or has been dropped.
 @MainActor @Test func onDiskStoreOpensTwiceThroughTheFactory() throws {

@@ -57,13 +57,17 @@ import Observation
     @ObservationIgnored let locale: Locale
     /// The pack states of the last query: where `cancel()` returns to.
     @ObservationIgnored var known: (speech: PackState, translation: PackState)?
-    /// The running job (at most one); cleared by the job itself as its last step.
-    @ObservationIgnored private var job: Task<Void, Never>?
+    /// The running job (at most one); cleared by the job itself as its last step. Observed,
+    /// so `isBusy` is.
+    private var job: Task<Void, Never>?
     /// `job` was cancelled and is only draining (its results are ignored).
     @ObservationIgnored private var jobCancelled = false
 
-    /// A job is running or draining (for tests).
-    var isBusy: Bool { job != nil }
+    /// True while a job (pack check, setup or self-test) runs, or while a cancelled job is
+    /// still draining (an install that ignores cancellation); observable. A call made
+    /// meanwhile is ignored or waits, so the view should disable its "下载"/"重试" buttons while
+    /// this is true instead of letting a tap wait silently.
+    public var isBusy: Bool { job != nil }
     /// Calls waiting for a cancelled job to end before they start (observable, for tests).
     private(set) var callsWaitingForCancelledJob = 0
 

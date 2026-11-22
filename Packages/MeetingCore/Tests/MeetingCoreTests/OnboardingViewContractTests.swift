@@ -47,3 +47,32 @@ private final class RecordingSourceReadiness: ReadinessChecking, Sendable {
     func selfTest(locale: Locale) async throws {}
     func preflight(locale: Locale) async throws {}
 }
+
+// MARK: - isBusy (F-E)
+
+/// `isBusy` is true while a job runs and while a cancelled job is still draining, false
+/// otherwise; and it is observable, so a disabled button comes back when a drain ends without
+/// any change of `step`.
+@MainActor @Test func isBusyCoversRunningAndDrainingJobsAndIsObservable() async {
+    let readiness = ScriptedReadiness(speech: .notInstalled, translation: .notInstalled,
+                                      blocking: [.install], honorsCancellation: false)
+    let onboarding = OnboardingModel(readiness: readiness, locale: english)
+    #expect(!onboarding.isBusy)                  // idle
+    await onboarding.refresh()
+    #expect(!onboarding.isBusy)                  // after a completed job
+    let setup = Task { await onboarding.startSetup() }
+    await readiness.entered(.install)
+    #expect(onboarding.isBusy)                   // during a job
+
+    onboarding.cancel()
+    let needsSetup = OnboardingModel.Step.needsSetup(speech: .notInstalled, translation: .notInstalled)
+    #expect(onboarding.step == needsSetup)
+    #expect(onboarding.isBusy)                   // the cancelled install is still draining
+    let changed = Mutex(false)
+    withObservationTracking { _ = onboarding.isBusy } onChange: { changed.withLock { $0 = true } }
+    readiness.release(.install)
+    await setup.value
+    #expect(!onboarding.isBusy)                  // the drain has ended
+    #expect(onboarding.step == needsSetup)       // ... without any change of step
+    #expect(changed.withLock { $0 })             // ... and observers were told
+}
