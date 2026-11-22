@@ -103,7 +103,7 @@ struct OnboardingContent: View {
 }
 
 extension OnboardingContent {
-    fileprivate static func sample(_ step: OnboardingModel.Step, busy: Bool = false) -> Self {
+    @MainActor fileprivate static func sample(_ step: OnboardingModel.Step, busy: Bool = false) -> Self {
         Self(step: step, isBusy: busy, direction: "英语 → 中文",
              download: {}, retry: {}, cancel: {}, start: {})
     }

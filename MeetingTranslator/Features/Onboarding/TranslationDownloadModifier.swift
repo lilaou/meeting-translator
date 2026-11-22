@@ -58,20 +58,28 @@ struct TranslationDownloadModifier: ViewModifier {
                 attempt?.retire()
                 attempt = awaiting ? TranslationDownloadAttempt(onboarding: onboarding) : nil
             }
-            .translationTask(current?.configuration) { session in
-                guard let current else { return }
-                // The session stays in this closure (it may not be sent elsewhere).
-                let outcome: (any Error)?
-                do {
-                    try await session.prepareTranslation()
-                    outcome = Task.isCancelled ? CancellationError() : nil
-                } catch is CancellationError {
-                    outcome = CancellationError()
-                } catch {
-                    outcome = Task.isCancelled ? CancellationError() : error
-                }
-                await current.report(outcome)
+            .translationTask(current?.configuration, action: Self.action(for: current))
+    }
+
+    /// Built in a nonisolated context on purpose: a closure written inline in `body` would be
+    /// main-actor isolated, and Swift 6 then rejects sending the (non-Sendable) session to
+    /// `prepareTranslation()`. This one keeps the session in its own region.
+    private nonisolated static func action(
+        for attempt: TranslationDownloadAttempt?
+    ) -> @Sendable (TranslationSession) async -> Void {
+        { session in
+            guard let attempt else { return }
+            let outcome: (any Error)?
+            do {
+                try await session.prepareTranslation()
+                outcome = Task.isCancelled ? CancellationError() : nil
+            } catch is CancellationError {
+                outcome = CancellationError()
+            } catch {
+                outcome = Task.isCancelled ? CancellationError() : error
             }
+            await attempt.report(outcome)
+        }
     }
 }
 
