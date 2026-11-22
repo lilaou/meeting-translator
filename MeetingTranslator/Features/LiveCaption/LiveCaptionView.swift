@@ -41,7 +41,7 @@ struct LiveCaptionView: View {
 
 /// Renders one coordinator state around a list; plain values in, so previews cover every state
 /// through the same rendering path as production.
-struct LiveCaptionContent<List: View>: View {
+struct LiveCaptionContent<ListContent: View>: View {
     let state: SessionCoordinator.State
     let isLagging: Bool
     let startedAt: Date?
@@ -49,7 +49,7 @@ struct LiveCaptionContent<List: View>: View {
     let start: () -> Void
     let finish: () -> Void
     let checkPacks: () -> Void
-    @ViewBuilder let list: List
+    @ViewBuilder let list: ListContent
 
     var body: some View {
         VStack(spacing: 0) {
@@ -113,7 +113,7 @@ struct LiveCaptionContent<List: View>: View {
     }
 }
 
-extension LiveCaptionContent where List == CaptionListContent {
+extension LiveCaptionContent where ListContent == CaptionListContent {
     @MainActor fileprivate static func sample(
         _ state: SessionCoordinator.State, lagging: Bool = false, started: Bool = true,
         rows: [CaptionRow] = (1...3).map { .sample($0) }, volatile: String = ""
