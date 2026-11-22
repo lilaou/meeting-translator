@@ -5,7 +5,7 @@ name: CI
 # the runners they are only smoke-tested (they conform, report pack states and
 # reject a locale without assets). Microphone capture (Task 9) is iOS only: the
 # iOS simulator builds compile it, and its buffer conversion and stream gate are
-# unit-tested on macOS. The app UI is not in the repo yet.
+# unit-tested on macOS. The app skeleton (Task 11b) is built by the build-app-* jobs.
 # Device-only tests (microphone, language packs,
 # real recognition and translation, the self-test, airplane-mode acceptance) can
 # never run here.
@@ -75,3 +75,37 @@ jobs:
           echo "SDK: $SDK"
           swift build --package-path "$PACKAGE" \
             --sdk "$SDK" --triple arm64-apple-ios18.0-simulator
+
+  # The app target (XcodeGen project, generated, never committed) for the iOS simulator.
+  build-app-macos-26:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build app for iOS Simulator
+        run: |
+          xcodebuild build -scheme MeetingTranslator \
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+
+  # The app target (XcodeGen project, generated, never committed) for the iOS simulator.
+  build-app-xcode-27:
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build app for iOS Simulator
+        run: |
+          xcodebuild build -scheme MeetingTranslator \
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
