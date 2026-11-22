@@ -54,6 +54,13 @@ jobs:
           echo "SDK: $SDK"
           swift build --package-path "$PACKAGE" \
             --sdk "$SDK" --triple arm64-apple-ios18.0-simulator
+      - name: Build tests for iOS Simulator
+        # Compiles the package's test code for iOS too (it is otherwise only built
+        # on macOS). Runs nothing: the device tests need a real device.
+        working-directory: Packages/MeetingCore
+        run: |
+          xcodebuild build-for-testing -scheme MeetingCore \
+            -destination 'generic/platform=iOS Simulator'
 
   # The project targets iOS 27 on device. The `xcode-27` image (macOS 27, Xcode 27,
   # arm64 only) carries the iOS 27 SDK; `xcode-27-xlarge` would be billed.
@@ -75,6 +82,13 @@ jobs:
           echo "SDK: $SDK"
           swift build --package-path "$PACKAGE" \
             --sdk "$SDK" --triple arm64-apple-ios18.0-simulator
+      - name: Build tests for iOS Simulator
+        # Compiles the package's test code for iOS too (it is otherwise only built
+        # on macOS). Runs nothing: the device tests need a real device.
+        working-directory: Packages/MeetingCore
+        run: |
+          xcodebuild build-for-testing -scheme MeetingCore \
+            -destination 'generic/platform=iOS Simulator'
 
   # The app target (XcodeGen project, generated, never committed) for the iOS simulator.
   build-app-macos-26:
@@ -84,13 +98,33 @@ jobs:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: xcodebuild -version
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      # XcodeGen 2.46.0, pinned. Asset: xcodegen.zip from
+      # https://github.com/yonaskolb/XcodeGen/releases/tag/2.46.0 (published
+      # 2026-07-16). Expected SHA-256 is the digest GitHub shows for that release
+      # asset (Releases API "digest" field); checked 2026-11-22 against a local
+      # download. If this step fails on a runner, fall back to
+      # `HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen` and print its version.
+      - name: Install XcodeGen (pinned, checksum verified)
+        run: |
+          DIR="$RUNNER_TEMP/xcodegen-dist"
+          mkdir -p "$DIR"
+          curl -fsSL -o "$DIR/xcodegen.zip" \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip"
+          echo "4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806  $DIR/xcodegen.zip" \
+            | shasum -a 256 -c -
+          unzip -q "$DIR/xcodegen.zip" -d "$DIR"
+          chmod +x "$DIR/xcodegen/bin/xcodegen"
+          echo "$DIR/xcodegen/bin" >> "$GITHUB_PATH"
+          "$DIR/xcodegen/bin/xcodegen" --version
       - name: Generate project
         run: xcodegen generate
       - name: Build app for iOS Simulator
         run: |
           xcodebuild build -scheme MeetingTranslator \
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+      - name: Build app for iOS Simulator (Release)
+        run: |
+          xcodebuild build -configuration Release -scheme MeetingTranslator \
             -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
 
   # The app target (XcodeGen project, generated, never committed) for the iOS simulator.
@@ -101,8 +135,24 @@ jobs:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: xcodebuild -version
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      # XcodeGen 2.46.0, pinned. Asset: xcodegen.zip from
+      # https://github.com/yonaskolb/XcodeGen/releases/tag/2.46.0 (published
+      # 2026-07-16). Expected SHA-256 is the digest GitHub shows for that release
+      # asset (Releases API "digest" field); checked 2026-11-22 against a local
+      # download. If this step fails on a runner, fall back to
+      # `HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen` and print its version.
+      - name: Install XcodeGen (pinned, checksum verified)
+        run: |
+          DIR="$RUNNER_TEMP/xcodegen-dist"
+          mkdir -p "$DIR"
+          curl -fsSL -o "$DIR/xcodegen.zip" \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip"
+          echo "4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806  $DIR/xcodegen.zip" \
+            | shasum -a 256 -c -
+          unzip -q "$DIR/xcodegen.zip" -d "$DIR"
+          chmod +x "$DIR/xcodegen/bin/xcodegen"
+          echo "$DIR/xcodegen/bin" >> "$GITHUB_PATH"
+          "$DIR/xcodegen/bin/xcodegen" --version
       - name: Generate project
         run: xcodegen generate
       - name: Build app for iOS Simulator
