@@ -6,7 +6,12 @@
 - 实施计划：`docs/superpowers/plans/2026-11-20-meeting-translator-phase0-1.md`
 - 早期的方案笔记（ChatGPT 的初步建议）不在本仓库中；设计文档第 11 节记录了本设计与它的差异。
 
-仓库里已有与引擎无关的核心逻辑：Swift 包 `Packages/MeetingCore`，用 `swift test --package-path Packages/MeetingCore` 运行测试，在 macOS 15 + Xcode 16.4 上即可运行；Apple Speech / Translation 引擎、麦克风采集和 App 界面（计划 Task 7–11）仍需 macOS 26 / iOS 27 SDK 和真机。开发必须在 Mac 上进行，本文件说明 Mac 上的准备步骤。
+## 当前状态
+
+- Phase 1 的**代码已完成**：核心包 `Packages/MeetingCore`（切句、翻译队列、会话协调、存储、Apple Speech / Translation 引擎、麦克风采集、引导流程的模型），以及 App 目标 `MeetingTranslator`（引导页和实时字幕页，由 `project.yml` 经 XcodeGen 生成工程）。
+- **真机验收尚未进行**：没有在任何 iPhone 上运行过。验收步骤和八项验收表（结果栏目前为空）见 `docs/phase1-acceptance.md`。
+- 当前的开发机是 Intel Mac（macOS 15，Xcode 16.4）。Apple Speech / Translation 引擎的 iOS 26 部分用 `#if compiler(>=6.2)` 保护，在 Xcode 16.4 上会被跳过；App 目标使用 iOS 26/27 的 API，在这台机器上无法构建。**CI 是这部分代码目前唯一的编译器**。
+- 在 macOS 15 + Xcode 16.4 上能做的事：运行核心包的测试 `swift test --package-path Packages/MeetingCore`（用假实现，不涉及真机）。
 
 ## 1. 拷贝项目
 
@@ -18,12 +23,14 @@
 
 | 要求 | 检查命令 | 只开发/测试核心包 | Task 7–11（Apple 引擎、App、真机） |
 |---|---|---|---|
-| macOS | `sw_vers -productVersion` | 主版本号 ≥ 15 | 主版本号 ≥ 26 |
-| Xcode | `xcodebuild -showsdks \| grep iphoneos` | Xcode 16.4 或更新 | 带 iOS 27 SDK，出现 `iphoneos27` 开头的条目 |
+| macOS | `sw_vers -productVersion` | 主版本号 ≥ 15 | 主版本号 ≥ 26（Apple 芯片） |
+| Xcode | `xcodebuild -showsdks \| grep iphoneos` | Xcode 16.4 或更新 | Xcode 27，带 iOS 27 SDK，出现 `iphoneos27` 开头的条目 |
 | 命令行工具指向该 Xcode | `xcode-select -p` | 路径在 `Xcode.app` 内 | 同左 |
 | Swift 6 | `swift --version` | 主版本号 ≥ 6 | 同左 |
 
-核心包 `Packages/MeetingCore` 声明的平台是 iOS 18 / macOS 15，所以只跑它的测试不需要 macOS 26。后续加入 Apple 引擎（Task 7–9）时，再把平台提高到 26。
+核心包 `Packages/MeetingCore` 声明的平台是 iOS 18 / macOS 15，所以只跑它的测试不需要 macOS 26；其中的 Apple 引擎用 `#if compiler(>=6.2)` 和可用性检查保护 iOS 26 的 API，App 目标的部署目标是 iOS 26.0。
+
+**Task 7–11 和真机需要 Apple 芯片的 Mac。** 据第三方文章和 Apple 开发者论坛的帖子（<https://developer.apple.com/forums/thread/829619>）报道，Xcode 27 不能在 Intel Mac 上运行，而 iOS 27 的 iPhone 需要 Xcode 27 才能部署；这一点没有对照 Apple 官方页面核实。Intel Mac 因此只能做核心包的开发和测试。
 
 `xcode-select -p` 指向别处时：
 
@@ -36,10 +43,10 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 ## 3. 安装工具
 
 ```bash
-# Homebrew（已有则跳过）
+# Homebrew（已有则跳过；据 https://docs.brew.sh/Support-Tiers 报道，其安装脚本拒绝在 Intel Mac 上安装，未核实）
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# XcodeGen：计划用它从 project.yml 生成工程
+# XcodeGen：从 project.yml 生成工程（CI 固定使用 2.46.0，见 .github/workflows/ci.yml）
 brew install xcodegen
 xcodegen --version
 ```
@@ -113,7 +120,7 @@ Phase 0 需要两类录音：
 |---|---|---|
 | Task 1 | 在手机上操作验证程序、开飞行模式复测、让手机跑 120 分钟长时间测试、把结果填进 `docs/phase0-results.md` | 两个半小时，其中 120 分钟是等待 |
 | Task 7、8 | 手机连着 Mac，跑真机测试 | 各几分钟 |
-| Task 11 | 按计划里的 8 项验收表逐项操作 | 半小时到一小时 |
+| Task 11 | 按 `docs/phase1-acceptance.md` 的 8 项验收表逐项操作并填写结果 | 半小时到一小时 |
 
 **Task 1 是闸门。** 真机验证不通过时计划要求停下来重新选方案，不要继续后面的任务。
 
@@ -125,5 +132,5 @@ Phase 0 需要两类录音：
 
 ## CI 与许可证
 
-- CI 用 GitHub Actions（`.github/workflows/ci.yml`）：在 `macos-26` 上跑核心包测试和 iOS 模拟器编译，在 `xcode-27` 上用 iOS 27 SDK 再测一遍。只用标准 runner，公开仓库免费；不要改成 `-large` / `-xlarge`，大号 runner 会计费。CI 只能验证编译和用假实现的单元测试，麦克风、系统语言包和飞行模式验收仍需真机。
+- CI 用 GitHub Actions（`.github/workflows/ci.yml`）：在 `macos-26` 上跑核心包测试和 iOS 模拟器编译，在 `xcode-27` 上用 iOS 27 SDK 再测一遍。只用标准 runner，公开仓库免费；不要改成 `-large` / `-xlarge`，大号 runner 会计费。CI 还会用 XcodeGen 生成工程并为 iOS 模拟器构建 App（含一次 Release 构建），并对包的测试代码做 `build-for-testing`（只编译、不运行）。XcodeGen 固定为 2.46.0 并校验 SHA-256。CI 只能验证编译和用假实现的单元测试，麦克风、系统语言包和飞行模式验收仍需真机。
 - 许可证：MIT，见 `LICENSE`。
