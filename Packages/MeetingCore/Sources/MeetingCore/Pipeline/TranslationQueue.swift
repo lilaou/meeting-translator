@@ -23,6 +23,8 @@ public struct TranslationOutcome: Sendable {
 ///   `translation == nil`. No sentence is ever dropped and `outcomes` is in enqueue order.
 /// - `lagging` emits `true` when the pending count (queued + in flight) rises to
 ///   `backlogThreshold`, and `false` when it falls back below it.
+/// - `abandon()` gives up at once (bounded wrap-up): see there. An abandoned (cancelled)
+///   request makes no per-sentence calls after its batch fails.
 public actor TranslationQueue {
     private struct Item: Sendable {
         let id: UUID
@@ -40,11 +42,16 @@ public actor TranslationQueue {
 
     private var queued: [Item] = []
     private var inFlight = false
+    /// Sentences of the request in flight; they have no outcome yet.
+    private var sending: [Item] = []
+    private var isAbandoned = false
     private var pending = 0
     private var isLagging = false
     private var sentSources: [String] = []
     private var isFinished = false
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+    /// The latest request (also one that was abandoned); tests await it to see a late result.
+    private(set) var request: Task<Void, Never>?
 
     public init(translator: any Translator, source: Locale.Language, config: PipelineConfig) {
         self.translator = translator
@@ -73,6 +80,25 @@ public actor TranslationQueue {
         laggingSink.finish()
     }
 
+    /// Stops at once: finishes `outcomes` and `lagging` (outcomes already yielded stay in the
+    /// stream), drops the queued sentences, stops waiting for the request in flight (it is
+    /// cancelled, and its result is discarded whenever it arrives) and releases a waiting
+    /// `finish()`. Returns the sentences that never got an outcome, in enqueue order.
+    /// Afterwards `enqueue` is ignored and `finish()` returns at once; a second call returns [].
+    func abandon() -> [UUID] {
+        guard !isAbandoned else { return [] }
+        isAbandoned = true
+        isFinished = true
+        let lost = (sending + queued).map(\.id)
+        sending = []
+        queued = []
+        request?.cancel()
+        outcomeSink.finish()
+        laggingSink.finish()
+        startNextBatch()                         // nothing queued: goes idle, resumes waiters
+        return lost
+    }
+
     private func startNextBatch() {
         guard !queued.isEmpty else {
             inFlight = false
@@ -84,12 +110,13 @@ public actor TranslationQueue {
         inFlight = true
         let batch = queued
         queued = []
+        sending = batch
         let context = Array(sentSources.suffix(max(config.contextSize, 0)))
         sentSources = Array((sentSources + batch.map(\.text)).suffix(max(config.contextSize, 0)))
         let translator = translator, source = source
         // The Task inherits this actor's isolation (it captures self); the translator call
         // itself is nonisolated, so the actor stays free for enqueues while it runs.
-        Task {
+        request = Task {
             let results = await Self.translate(batch.map(\.text), translator: translator,
                                                source: source, context: context)
             self.complete(batch, results: results)
@@ -97,6 +124,8 @@ public actor TranslationQueue {
     }
 
     private func complete(_ batch: [Item], results: [String?]) {
+        guard !isAbandoned else { return }      // a late result after abandon() is discarded
+        sending = []
         for (item, translation) in zip(batch, results) {
             outcomeSink.yield(TranslationOutcome(segmentID: item.id, translation: translation))
         }
@@ -121,10 +150,12 @@ public actor TranslationQueue {
            batch.count == texts.count {
             return batch
         }
+        // Only `abandon()` cancels a request, and it discards the results: make no more calls
+        // (each would wait for the translator ahead of the next meeting's translations).
         var out: [String?] = []
-        for text in texts {
+        for text in texts where !Task.isCancelled {
             out.append(try? await translator.translate(text, from: source, context: context))
         }
-        return out
+        return out + Array(repeating: nil, count: texts.count - out.count)
     }
 }

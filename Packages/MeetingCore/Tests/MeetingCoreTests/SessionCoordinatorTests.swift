@@ -8,30 +8,6 @@ import SwiftData
 private let enUS = Locale(identifier: "en-US")
 private let translated = SegmentStatus.translated.rawValue
 
-@MainActor
-private func makeCoordinator(
-    engine: any ASREngine, translator: FakeTranslator = FakeTranslator(),
-    audio: any AudioSource = FakeAudioSource(), readiness: FakeReadiness = FakeReadiness(),
-    store: TranscriptStore? = nil, config: PipelineConfig = PipelineConfig()
-) throws -> (SessionCoordinator, TranscriptStore) {
-    let store = try store ?? TranscriptStore.inMemory()
-    let coordinator = SessionCoordinator(engine: engine, translator: translator, audio: audio,
-                                         readiness: readiness, store: store, config: config)
-    return (coordinator, store)
-}
-
-/// Suspends until `condition` holds, re-checking whenever an observed property changes.
-@MainActor
-private func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
-    while !condition() {
-        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
-            MainActor.assumeIsolated {
-                withObservationTracking { _ = condition() } onChange: { c.resume() }
-            }
-        }
-    }
-}
-
 /// Polls with a generous deadline. Only for waits on a real timer (the pause timeout).
 @MainActor
 private func poll(timeout: Duration = .seconds(2), _ condition: () throws -> Bool) async rethrows -> Bool {
@@ -41,11 +17,6 @@ private func poll(timeout: Duration = .seconds(2), _ condition: () throws -> Boo
         try? await Task.sleep(for: .milliseconds(5))
     }
     return try condition()
-}
-
-private func isFailed(_ state: SessionCoordinator.State) -> Bool {
-    if case .failed(let hint) = state { return !hint.isEmpty }
-    return false
 }
 
 @Suite(.timeLimit(.minutes(1)))
@@ -175,9 +146,7 @@ struct SessionCoordinatorTests {
     // MARK: - Controller rulings (R13) and lagging
 
     @MainActor @Test func audioStartFailureEndsTheMeetingItCreated() async throws {
-        let container = try ModelContainer(
-            for: Meeting.self, Segment.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let container = try MeetingStorage.makeInMemoryContainer()
         let (c, _) = try makeCoordinator(engine: FakeASREngine(events: []),
                                          audio: FailingAudioSource(error: .permissionDenied),
                                          store: TranscriptStore(container: container))
@@ -215,9 +184,7 @@ struct SessionCoordinatorTests {
     /// The failure is caused by re-keying the Meeting row from another context (deleting it
     /// would cascade to the earlier segment), so `store.append` throws `meetingNotFound`.
     @MainActor @Test func appendFailureIsSurfacedNotDropped() async throws {
-        let container = try ModelContainer(
-            for: Meeting.self, Segment.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let container = try MeetingStorage.makeInMemoryContainer()
         let engine = ManualASREngine()
         let (c, store) = try makeCoordinator(engine: engine, store: TranscriptStore(container: container))
         await c.start(locale: enUS)
@@ -228,7 +195,8 @@ struct SessionCoordinatorTests {
         engine.send(.volatile(text: "m1"))
         await waitUntil { c.volatileText == "m1" }
 
-        let other = container.mainContext
+        // A context of its own: the store's is `container.mainContext`.
+        let other = ModelContext(container)
         let meeting = try #require(try other.fetch(FetchDescriptor<Meeting>()).first)
         meeting.id = UUID()
         try other.save()

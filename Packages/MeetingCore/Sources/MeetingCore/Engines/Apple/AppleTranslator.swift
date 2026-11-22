@@ -13,20 +13,18 @@ import Translation
 /// One session per source language is cached in an actor, so calls may come from any
 /// context; the actor runs them one at a time. `context` is ignored.
 ///
-/// Because calls are serialized, a translation call that never returned would block every
-/// later call on the same `AppleTranslator` value, including `selfTest`'s translation if the
-/// app shares one instance. Apple documents that the session throws instead of waiting, so
-/// the risk is low; the coordinator's missing drain time limit is an open item in
-/// docs/superpowers/notes/2026-11-21-engine-contracts.md ("未完成事项", open items).
+/// Because calls are serialized, a translation call that never returned would still block
+/// every later call on the same `AppleTranslator` value, including `selfTest`'s translation if
+/// the app shares one instance. Apple documents that the session throws instead of waiting, so
+/// the risk is low. The coordinator no longer waits for it at the end of a meeting: its drains
+/// are bounded (`PipelineConfig.engineDrainTimeout` 10 s, `translationDrainTimeout` 30 s, both
+/// provisional; see docs/superpowers/notes/2026-11-21-engine-contracts.md).
 ///
 /// Unverified without a device: that a session made with installed packs works offline and
 /// throws (instead of waiting) when the app is in the background or the pack was removed,
 /// that batch answers carry the request identifiers, and the translation quality.
 @available(iOS 26.0, macOS 26.0, *)
 public struct AppleTranslator: Translator {
-    /// The spec's fixed target language.
-    static let target = Locale.Language(identifier: "zh-Hans")
-
     private let sessions = TranslationSessions()
 
     public init() {}
@@ -51,7 +49,7 @@ public struct AppleTranslator: Translator {
 
     /// The state of the pack from `source` to Simplified Chinese.
     static func packState(from source: Locale.Language) async -> PackState {
-        switch await LanguageAvailability().status(from: source, to: target) {
+        switch await LanguageAvailability().status(from: source, to: TranslationTarget.language) {
         case .installed: .installed
         case .supported: .notInstalled
         case .unsupported: .unsupported
@@ -95,7 +93,7 @@ actor TranslationSessions {
         guard await AppleTranslator.packState(from: source) == .installed else {
             throw AppleTranslatorError.packNotInstalled(source.minimalIdentifier)
         }
-        let session = TranslationSession(installedSource: source, target: AppleTranslator.target)
+        let session = TranslationSession(installedSource: source, target: TranslationTarget.language)
         cache[key] = session
         return session
     }

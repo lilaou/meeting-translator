@@ -5,6 +5,11 @@ public enum SegmentStatus: String, Codable, Sendable {
     case pendingTranslation, translated, translationFailed, interruptionMarker
 }
 
+// Schema: `Meeting` and `Segment` are pinned as `SchemaV1` (version 1.0.0, see
+// MeetingSchema.swift). Any change to their stored properties or relationships needs a new
+// schema version and a stage in `MeetingMigrationPlan`; records already on a device must
+// stay readable. The objects belong to the main context (see `TranscriptStore`).
+
 @Model public final class Meeting {
     public var id: UUID
     public var title: String

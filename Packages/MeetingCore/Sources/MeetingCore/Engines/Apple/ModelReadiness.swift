@@ -63,6 +63,9 @@ public struct ModelReadiness: ReadinessChecking {
         }
     }
 
+    /// Throws `ReadinessFailure.selfTestFailed` with a readable reason when the self-test does
+    /// not pass, or `CancellationError` unchanged when it was cancelled (treat that as
+    /// "cancelled", not as a failure).
     public func selfTest(locale: Locale) async throws {
         try await logic.selfTest(locale: locale)
     }

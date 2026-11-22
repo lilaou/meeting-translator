@@ -45,10 +45,10 @@ import SwiftData
     #expect(seg.translatedText == "一。")
 }
 
+/// Two stores on one container (both on its main context) continue one meeting, and what
+/// they wrote is in the store itself, as a new context on the same container sees it.
 @MainActor @Test func dataSurvivesNewContextOnSameContainer() throws {
-    let container = try ModelContainer(
-        for: Meeting.self, Segment.self,
-        configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    let container = try MeetingStorage.makeInMemoryContainer()
     let first = TranscriptStore(container: container)
     let m = try first.startMeeting(locale: Locale(identifier: "en-US"), at: .now)
     _ = try first.append(Sentence(text: "One.", start: 0, end: 1), to: m)
@@ -58,12 +58,15 @@ import SwiftData
     let segs = try second.segments(of: m)
     #expect(segs.map(\.sourceText) == ["One.", "Two."])
     #expect(segs.map(\.index) == [0, 1])
+    let fresh = try ModelContext(container)
+        .fetch(FetchDescriptor<Segment>(sortBy: [SortDescriptor(\.index)]))
+    #expect(fresh.map(\.sourceText) == ["One.", "Two."])
+    #expect(fresh.map(\.index) == [0, 1])
+    #expect(fresh.allSatisfy { $0.meeting?.id == m })
 }
 
 @MainActor @Test func endMeetingSetsEndDateAndTitleDefaultsToStartTime() throws {
-    let container = try ModelContainer(
-        for: Meeting.self, Segment.self,
-        configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    let container = try MeetingStorage.makeInMemoryContainer()
     let store = TranscriptStore(container: container)
     let start = Date(timeIntervalSince1970: 1_700_000_000)
     let m = try store.startMeeting(locale: Locale(identifier: "en-US"), at: start)
@@ -93,9 +96,7 @@ import SwiftData
 private let pending = SegmentStatus.pendingTranslation.rawValue
 
 @MainActor @Test func failedAppendLeavesNoSegmentAndNoIndexGap() throws {
-    let container = try ModelContainer(
-        for: Meeting.self, Segment.self,
-        configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    let container = try MeetingStorage.makeInMemoryContainer()
     let store = TranscriptStore(container: container)
     let m = try store.startMeeting(locale: Locale(identifier: "en-US"), at: .now)
     _ = try store.append(Sentence(text: "One.", start: 0, end: 1), to: m)
@@ -114,9 +115,7 @@ private let pending = SegmentStatus.pendingTranslation.rawValue
 }
 
 @MainActor @Test func failedSetTranslationIsRolledBackAndCanBeRetried() throws {
-    let container = try ModelContainer(
-        for: Meeting.self, Segment.self,
-        configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    let container = try MeetingStorage.makeInMemoryContainer()
     let store = TranscriptStore(container: container)
     let m = try store.startMeeting(locale: Locale(identifier: "en-US"), at: .now)
     let id = try store.append(Sentence(text: "One.", start: 0, end: 1), to: m)
@@ -144,10 +143,7 @@ private let pending = SegmentStatus.pendingTranslation.rawValue
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: dir) }
     let url = dir.appendingPathComponent("transcripts.store")
-    func open() throws -> ModelContainer {
-        try ModelContainer(for: Meeting.self, Segment.self,
-                           configurations: ModelConfiguration(url: url))
-    }
+    func open() throws -> ModelContainer { try MeetingStorage.makeContainer(at: url) }
 
     let meetingID: UUID
     do {

@@ -5,8 +5,9 @@ import Observation
 /// 把整条管线串起来：音频 → 识别 → 断句 → 存储 + 翻译队列 → 回写译文。
 ///
 /// 收尾只有一条路径（`finish()`、音频流结束、识别流结束或抛错，先到者触发，只执行一次）：
-/// `finishing` → 停音频 → 等音频尾部送完 → 等识别流结束 → `flush()` → 入队 → `queue.finish()` → 回写全部结果
-/// → `endMeeting` → `idle`（识别流抛错——包括收尾期间——时为 `failed`，已存记录保留）。
+/// `finishing` → 停音频 → 等音频尾部送完（≤1 秒）→ 等识别流结束（≤`engineDrainTimeout`）→ `flush()` → 入队
+/// → `queue.finish()` 并回写全部结果（≤`translationDrainTimeout`）→ `endMeeting` → `idle`。
+/// 识别流抛错（包括收尾期间）、写入失败或任一等待超时时为 `failed`，已存记录保留，会议照常结束。
 @MainActor @Observable public final class SessionCoordinator {
     public enum State: Equatable, Sendable { case idle, preparing, listening, finishing, failed(String) }
 
@@ -46,6 +47,9 @@ import Observation
     @ObservationIgnored var endMeetingError: (any Error)?
     /// Error the recognition stream ended with, whenever it ended (also during wrap-up).
     @ObservationIgnored var engineError: (any Error)?
+    /// Wrap-up bounds that fired this meeting; reported in the final `.failed` message.
+    @ObservationIgnored var engineDrainTimedOut = false
+    @ObservationIgnored var untranslatedSentences = 0
     /// Wrap-up fallback bound for the audio drain; internal so tests can shorten it.
     @ObservationIgnored var audioDrainTimeout = SessionCoordinator.defaultAudioDrainTimeout
 
@@ -107,9 +111,11 @@ import Observation
     func finalState() -> State {
         var problems: [String] = []
         if let engineError { problems.append(Self.hint(for: engineError)) }
+        if engineDrainTimedOut { problems.append("识别在会议结束时未能及时完成，结尾的几句话可能没有被识别") }
         let reason = lastWriteError.map(Self.writeReason) ?? ""
         if unsavedSentences > 0 { problems.append("有 \(unsavedSentences) 句未能保存：\(reason)") }
         if unsavedResults > 0 { problems.append("有 \(unsavedResults) 条翻译结果未能保存：\(reason)") }
+        if untranslatedSentences > 0 { problems.append("有 \(untranslatedSentences) 句尚未完成翻译（原文已保存）") }
         if let endMeetingError { problems.append("会议结束时间未能保存：\(Self.writeReason(endMeetingError))") }
         return problems.isEmpty ? .idle : .failed(problems.joined(separator: "；"))
     }
@@ -122,21 +128,5 @@ import Observation
         }
     }
 
-    static func hint(for error: any Error) -> String {
-        switch error {
-        case let failure as ReadinessFailure:
-            switch failure {
-            case .speechPackMissing: return "语音识别离线包未安装，请先下载"
-            case .translationPackMissing: return "翻译离线包未安装，请先下载"
-            case .selfTestFailed(let detail): return "离线自检未通过：\(detail)"
-            }
-        case let failure as AudioCaptureError:
-            switch failure {
-            case .permissionDenied: return "没有麦克风权限，请在系统设置中允许"
-            case .engineStartFailed(let detail): return "无法启动录音：\(detail)"
-            }
-        default:
-            return "出现错误：\(error.localizedDescription)"
-        }
-    }
+    static func hint(for error: any Error) -> String { UserMessages.hint(for: error) }
 }

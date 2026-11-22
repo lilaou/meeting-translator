@@ -50,18 +50,22 @@ struct ReadinessLogic: Sendable {
         }
     }
 
-    /// Recognizes the sample speech and translates the sample sentence; any failure,
-    /// including an error of the engine, translator or audio provider, becomes
-    /// `ReadinessFailure.selfTestFailed` with a readable reason.
-    func selfTest(locale: Locale) async throws(ReadinessFailure) {
+    /// Recognizes the sample speech and translates the sample sentence. A `CancellationError`
+    /// (from the audio provider, the engine, the translator, or the task being cancelled while
+    /// recognition or translation runs, whatever error that then produced) propagates: callers treat it as "cancelled",
+    /// not as a failure. Any other problem, including another error of the engine, translator
+    /// or audio provider, becomes `ReadinessFailure.selfTestFailed` with a readable reason.
+    func selfTest(locale: Locale) async throws {
         let transcript = try await recognizeSample(locale: locale)
         let translation: String
         do {
             translation = try await translator.translate(Self.translatedSentence,
                                                          from: locale.language, context: [])
         } catch {
-            throw .selfTestFailed("翻译出错：\(error.localizedDescription)")
+            throw Self.failure("翻译出错：", error)
         }
+        // A cancelled translator may still return; its result is not judged.
+        try Task.checkCancellation()
         try Self.evaluate(transcript: transcript, translation: translation)
     }
 
@@ -80,19 +84,28 @@ struct ReadinessLogic: Sendable {
         text.unicodeScalars.contains { $0.properties.isUnifiedIdeograph }
     }
 
+    /// A cancellation when `error` is a `CancellationError` or the task was cancelled (a real
+    /// framework may report a cancellation with an error of its own); otherwise
+    /// `selfTestFailed(prefix + reason)`.
+    private static func failure(_ prefix: String, _ error: any Error) -> any Error {
+        if error is CancellationError { return error }
+        if Task.isCancelled { return CancellationError() }
+        return ReadinessFailure.selfTestFailed(prefix + error.localizedDescription)
+    }
+
     /// The final texts of recognizing the sample speech, joined with spaces.
-    private func recognizeSample(locale: Locale) async throws(ReadinessFailure) -> String {
+    private func recognizeSample(locale: Locale) async throws -> String {
         let format: AVAudioFormat
         do {
             format = try await engine.preferredFormat(for: locale)
         } catch {
-            throw .selfTestFailed("语音识别出错：\(error.localizedDescription)")
+            throw Self.failure("语音识别出错：", error)
         }
         let speech: AsyncStream<AVAudioPCMBuffer>
         do {
             speech = try await audio.speech(Self.spokenSentence, format: format)
         } catch {
-            throw .selfTestFailed("无法生成测试语音：\(error.localizedDescription)")
+            throw Self.failure("无法生成测试语音：", error)
         }
         var finals: [String] = []
         do {
@@ -100,8 +113,10 @@ struct ReadinessLogic: Sendable {
                 if case .finalized(let text, _) = event { finals.append(text) }
             }
         } catch {
-            throw .selfTestFailed("语音识别出错：\(error.localizedDescription)")
+            throw Self.failure("语音识别出错：", error)
         }
+        // A cancelled iteration ends without an error; the partial transcript is not judged.
+        try Task.checkCancellation()
         return finals.joined(separator: " ")
     }
 }
