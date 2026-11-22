@@ -56,4 +56,23 @@ func appleEngineTranscribesTheBenchmarkRecording() async throws {
     let locales = await engine.supportedLocales()
     print("AppleSpeechEngine installed locales: \(locales.map { $0.identifier(.bcp47) })")
 }
+
+/// Safe without speech assets: a locale that is not installed fails `preferredFormat` and
+/// finishes the event stream with a readable error instead of leaving it open.
+@Test func appleEngineRejectsALocaleThatIsNotInstalled() async throws {
+    guard #available(iOS 26.0, macOS 26.0, *) else { return }
+    let engine = AppleSpeechEngine()
+    let locale = Locale(identifier: "en-US")
+    let installed = await engine.supportedLocales().map { $0.identifier(.bcp47) }
+    guard !installed.contains("en-US") else { return }   // assets present: nothing to check
+    let expected = AppleSpeechError.localeNotInstalled("en-US")
+
+    await #expect(throws: expected) { _ = try await engine.preferredFormat(for: locale) }
+    let (audio, sink) = AsyncStream<AVAudioPCMBuffer>.makeStream()
+    sink.finish()
+    await #expect(throws: expected) {
+        for try await _ in engine.transcribe(audio, locale: locale) {}
+    }
+    #expect(expected.localizedDescription.contains("en-US"))
+}
 #endif
