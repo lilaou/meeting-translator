@@ -22,11 +22,19 @@ final class TranslationDownloadAttempt {
     /// is being cancelled) must not reach the model, or it could end a NEWER attempt.
     func retire() { retired = true }
 
-    /// Reports to the model at most once, and never after `retire()`.
-    func report(_ error: (any Error)?) async {
+    /// Reports to the model at most once, and never after `retire()`. The report runs in an
+    /// UNSTRUCTURED task on purpose: `translationDownloadFinished` runs the whole follow-up job
+    /// (re-query, self-test) and `OnboardingModel.run` ties a job to the cancellation of the
+    /// task that started it. SwiftUI cancels the `.translationTask` action's task as soon as
+    /// the configuration becomes nil, which happens when the step leaves
+    /// `.awaitingTranslationDownload` (right when the job starts). Started from the action's
+    /// task, the job would be cancelled at once; it would also be dropped if that task were
+    /// already cancelled. This task inherits the main actor, not the cancellation.
+    func report(_ error: (any Error)?) {
         guard !reported, !retired else { return }
         reported = true
-        await onboarding.translationDownloadFinished(error: error)
+        let onboarding = onboarding
+        Task { await onboarding.translationDownloadFinished(error: error) }
     }
 }
 
@@ -35,13 +43,15 @@ final class TranslationDownloadAttempt {
 ///
 /// - Obligation 9: the configuration is DERIVED from the step. Each time the step enters the
 ///   state a NEW attempt (a new `Configuration`) is created, and it is set to nil when the
-///   step leaves, so the next entry makes `.translationTask` run again (an unchanged
-///   configuration would not).
+///   step leaves. `Configuration(source:target:)` values are EQUAL for the same pair, so
+///   what makes `.translationTask` run again on the next entry is the committed nil BETWEEN
+///   attempts; do not "simplify" that nil away (nor reuse one stored configuration).
 /// - Obligation 10: `translationDownloadFinished(error:)` is called EXACTLY ONCE per attempt on
-///   every path. The one call site is after the do/catch in the task closure, which computes the outcome:
+///   every path. The one call site is after the do/catch in the task closure, which computes
+///   the outcome:
 ///   success is nil, a thrown error is that error, and cancellation (a `CancellationError`, or
 ///   the task being cancelled at all) is `CancellationError()`, which the model reads as
-///   "back to needsSetup" and not as a failure. `TranslationDownloadAttempt.report` also
+///   "back to needsSetup" and not as a failure (if the step already left, the model ignores it). `TranslationDownloadAttempt.report` also
 ///   refuses a second report.
 /// - Obligation 11: the pair is `translationSource`/`translationTarget`, else the download
 ///   succeeds while the model's check still says the pack is missing.

@@ -88,6 +88,9 @@
 - 真实 SwiftUI 场景中 `@Query` 是否实时更新；存储和 `mainContext` 在 iOS 18/26 上的行为是否与 macOS 15 相同（包括 `mainContext` 不会让容器保持存活、并发创建容器会崩溃这两条实现者的结论）。
 - 第一次真实的模式迁移（`SchemaV1` → `SchemaV2`）。
 - `engineDrainTimeout` 10 秒 / `translationDrainTimeout` 30 秒是否合适。
+- 下载成功后不需要再点一次就到「已就绪」(`.translationTask` 在配置变为 nil 时会取消它的动作任务，视图已用独立的 Task 把报告交给模型)。
+- `cancel()` 时系统下载弹窗和下载是否真的随配置变 nil 而停止；若不停，第二次「下载」可能弹出第二个弹窗（过期报告已被丢弃）。
+- 应用从后台回到前台后，之前的 `.ready` 可能已不正确；11d/11e 在开始会议前应重新检查就绪状态。
 - 【有条件】当 `speechState` 已经报告 `.installed`（系统早已有该模型）时，引导流程从不调用 `installSpeechPack`，因此该语言区域从未被预留（reserve）。如果转写必须先预留，自检就会一直失败，`retry()` 也修不好。可在真机上尝试的补救：让语音状态检查在语言区域未同时被预留时报告 `.notInstalled`；或在 `setUp` 中总是调用幂等的 `installSpeechPack`，并把自检失败引导回 `.needsSetup`。
 
 ## 待定的设计决定

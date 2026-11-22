@@ -8,10 +8,16 @@ struct RootView: View {
     @State private var started = false
 
     var body: some View {
-        if started, onboarding.step == .ready {
-            Text("字幕页占位")
-        } else {
-            OnboardingView(onboarding: onboarding) { started = true }
+        Group {
+            if started, onboarding.step == .ready {
+                Text("字幕页占位")
+            } else {
+                OnboardingView(onboarding: onboarding) { started = true }
+            }
+        }
+        // A new "开始" tap is needed whenever the step has left `.ready` in between.
+        .onChange(of: onboarding.step) { _, step in
+            if step != .ready { started = false }
         }
     }
 }

@@ -9,6 +9,8 @@ struct OnboardingView: View {
     let direction: String
     let onStart: () -> Void
 
+    /// The default direction label is built from `AppAssembly.sourceLocale`, which must stay
+    /// the same constant the model's locale comes from (obligation 7).
     init(onboarding: OnboardingModel,
          direction: String = CaptionStrings.direction(from: AppAssembly.sourceLocale),
          onStart: @escaping () -> Void) {
@@ -82,7 +84,8 @@ struct OnboardingContent: View {
         if speech == .installed, translation == .installed {
             Text("还需要完成一次自检")
         }
-        Button("下载", action: download).disabled(isBusy).buttonStyle(.borderedProminent)
+        Button(speech == .installed && translation == .installed ? "开始自检" : "下载",
+               action: download).disabled(isBusy).buttonStyle(.borderedProminent)
     }
 
     private func row(_ title: String, _ state: PackState) -> some View {
