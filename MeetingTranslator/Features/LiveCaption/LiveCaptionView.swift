@@ -5,7 +5,8 @@ import SwiftUI
 ///
 /// Start and finish run in an unstructured `Task` created by the button action, NOT in `.task`
 /// or `.onChange`. SwiftUI cancels those when the view disappears or its inputs change, and
-/// the model ties a job to the cancellation of the task that started it; a meeting must not
+/// `start` awaits `readiness.preflight` and the engine/audio connection inside the calling
+/// task, so a cancellable caller could abort preparation or the wrap-up; a meeting must not
 /// end because the page re-rendered or the user left it. A button's `Task` is never cancelled
 /// by SwiftUI. It captures only the coordinator (a `@MainActor` class read from the
 /// environment), so nothing non-`Sendable` crosses an isolation boundary.
@@ -14,10 +15,18 @@ struct LiveCaptionView: View {
     /// Back to the onboarding page (offered after a failure; see `RootView`).
     let onCheckPacks: () -> Void
 
+    private var runningSince: Date? {
+        switch coordinator.state {
+        case .listening, .finishing: coordinator.startedAt
+        case .idle, .preparing, .failed: nil
+        }
+    }
+
     var body: some View {
         LiveCaptionContent(
             state: coordinator.state, isLagging: coordinator.isTranslationLagging,
-            startedAt: coordinator.startedAt,
+            // Shown only while a meeting runs; `startedAt` is not cleared after wrap-up.
+            startedAt: runningSince,
             direction: CaptionStrings.direction(from: AppAssembly.sourceLocale),
             start: { [coordinator] in
                 Task { await coordinator.start(locale: AppAssembly.sourceLocale) }
@@ -29,7 +38,9 @@ struct LiveCaptionView: View {
             // `Query` and a fresh follow state. Without a meeting (before the first start,
             // or a failed start) there is nothing to query.
             if let meetingID = coordinator.meetingID {
-                CaptionListView(meetingID: meetingID, volatileText: coordinator.volatileText)
+                // The list reads `volatileText` itself, so partial-recognition updates do not
+                // re-render this view or rebuild the `Query`.
+                CaptionListView(meetingID: meetingID)
                     .id(meetingID)
             } else {
                 Color.clear

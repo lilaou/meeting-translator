@@ -7,18 +7,19 @@ import SwiftUI
 /// by `meeting?.id`, sorted by `index`. Read-only: nothing here inserts, edits or saves.
 struct CaptionListView: View {
     @Query private var segments: [Segment]
-    let volatileText: String
+    /// Read here (not in the parent) so a volatile update re-renders only this view.
+    /// Optional so the `@Query` preview can run without a coordinator.
+    @Environment(SessionCoordinator.self) private var coordinator: SessionCoordinator?
 
-    init(meetingID: UUID, volatileText: String) {
+    init(meetingID: UUID) {
         _segments = Query(filter: #Predicate<Segment> { $0.meeting?.id == meetingID },
                           sort: \Segment.index)
-        self.volatileText = volatileText
     }
 
     var body: some View {
         CaptionListContent(
             rows: segments.map { CaptionRow(id: $0.id, display: SegmentDisplay($0)) },
-            volatileText: volatileText)
+            volatileText: coordinator?.volatileText ?? "")
     }
 }
 
@@ -29,61 +30,72 @@ struct CaptionListContent: View {
     @State private var follow = ScrollFollowState()
     /// True while a user-driven scroll phase (finger down or flinging) is in progress.
     @State private var userIsScrolling = false
+    /// Latest "newest caption in view" reading, updated in EVERY phase so the end of a user
+    /// gesture can re-read it even if the change happened outside a user phase.
+    @State private var isAtBottom = true
+    @State private var position = ScrollPosition(edge: .bottom)
 
     /// How close to the end still counts as "at the bottom" (points).
     private static let bottomTolerance: CGFloat = 40
-    private static let bottomID = "bottom"
 
-    /// Changes when something is added or finishes translating, or the volatile line changes.
+    /// Cheap "something new" signal: row count, the last row, the volatile line.
     private struct ContentToken: Equatable {
-        let rows: [CaptionRow]
+        let count: Int
+        let last: CaptionRow?
         let volatileText: String
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach(rows) { SegmentRow(display: $0.display) }
-                    if !volatileText.isEmpty {
-                        Text(volatileText).font(.title3).foregroundStyle(.tertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    Color.clear.frame(height: 1).id(Self.bottomID)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+                ForEach(rows) { SegmentRow(display: $0.display) }
+                if !volatileText.isEmpty {
+                    Text(volatileText).font(.title3).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            }
+            .padding()
+        }
+        // Starts at the bottom when the list appears with existing rows. Bottom scrolling uses
+        // `ScrollPosition.scrollTo(edge:)`, which is geometry based, instead of an id anchor
+        // after a LazyVStack that may land short when the target is far away and unrealized.
+        .defaultScrollAnchor(.bottom)
+        .scrollPosition($position)
+        // Obligation 13: only the user's own scrolling may change the follow state. Content
+        // growth and our own scrolling run in other phases (.idle/.animating), so they never
+        // reach `userScrolled`. Real phase ordering is a device check (see the contracts note).
+        .onScrollPhaseChange { _, new in
+            let wasUser = userIsScrolling
+            userIsScrolling = new == .interacting || new == .decelerating
+            if wasUser && !userIsScrolling {
+                follow.userScrolled(isAtBottom: isAtBottom)
+                if follow.shouldScrollOnNewContent { scrollToBottom() }
+            }
+        }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.visibleRect.maxY >= geometry.contentSize.height - Self.bottomTolerance
+        } action: { _, atBottom in
+            isAtBottom = atBottom
+            if userIsScrolling { follow.userScrolled(isAtBottom: atBottom) }
+        }
+        .onChange(of: ContentToken(count: rows.count, last: rows.last, volatileText: volatileText)) {
+            // Never move the list under the user's finger; the end of the gesture catches up.
+            if follow.shouldScrollOnNewContent && !userIsScrolling { scrollToBottom() }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if follow.showsBackToLatest {
+                Button(CaptionStrings.backToLatest) {
+                    follow.jumpToLatest()
+                    scrollToBottom()
+                }
+                .buttonStyle(.borderedProminent)
                 .padding()
-            }
-            // Obligation 13: only the user's own scrolling may change the follow state.
-            // Content growth and our own `scrollTo` run in other phases (.idle/.animating),
-            // so they never reach `userScrolled`; the bottom check runs only while the user
-            // is dragging or flinging.
-            .onScrollPhaseChange { _, new in
-                userIsScrolling = new == .interacting || new == .decelerating
-            }
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.containerSize.height
-                    >= geometry.contentSize.height - Self.bottomTolerance
-            } action: { _, atBottom in
-                if userIsScrolling { follow.userScrolled(isAtBottom: atBottom) }
-            }
-            .onChange(of: ContentToken(rows: rows, volatileText: volatileText)) {
-                if follow.shouldScrollOnNewContent { scrollToBottom(proxy) }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if follow.showsBackToLatest {
-                    Button(CaptionStrings.backToLatest) {
-                        follow.jumpToLatest()
-                        scrollToBottom(proxy)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .padding()
-                }
             }
         }
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        withAnimation { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+    private func scrollToBottom() {
+        withAnimation { position.scrollTo(edge: .bottom) }
     }
 }
 
@@ -124,7 +136,7 @@ extension CaptionRow {
     // Resolved inside the preview body so a failure shows as text rather than crashing.
     if let container = try? seededContainer(), let meeting = try? container.mainContext
         .fetch(FetchDescriptor<Meeting>()).first {
-        CaptionListView(meetingID: meeting.id, volatileText: "live…").modelContainer(container)
+        CaptionListView(meetingID: meeting.id).modelContainer(container)
     } else {
         Text("preview container failed")
     }
