@@ -1,6 +1,10 @@
 import MeetingCore
 import SwiftUI
 
+/// How close to the end still counts as "at the bottom" (points); outside the generic type,
+/// which cannot have static stored properties.
+private let captionBottomTolerance: CGFloat = 40
+
 /// The scrolling list for plain values (used by `CaptionListView` and by previews). `tail` is
 /// the live line after the last row.
 struct CaptionListContent<Tail: View>: View {
@@ -13,9 +17,6 @@ struct CaptionListContent<Tail: View>: View {
     /// gesture can re-read it even if the change happened outside a user phase.
     @State private var isAtBottom = true
     @State private var position = ScrollPosition(edge: .bottom)
-
-    /// How close to the end still counts as "at the bottom" (points).
-    private static let bottomTolerance: CGFloat = 40
 
     var body: some View {
         ScrollView {
@@ -57,7 +58,7 @@ struct CaptionListContent<Tail: View>: View {
             }
         }
         .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.visibleRect.maxY >= geometry.contentSize.height - Self.bottomTolerance
+            geometry.visibleRect.maxY >= geometry.contentSize.height - captionBottomTolerance
         } action: { _, atBottom in
             isAtBottom = atBottom
             // Known limit (N4): growth during a gesture at the bottom can flip this to false;
