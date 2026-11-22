@@ -43,6 +43,8 @@ extension SessionCoordinator {
         lastWriteError = nil
         endMeetingError = nil
         engineError = nil
+        engineDrainTimedOut = false
+        untranslatedSentences = 0
         engineAudio = wiring.engineAudio
         forwardTask = wiring.forwarder
         audioEndTask = Task { [weak self] in
@@ -56,7 +58,9 @@ extension SessionCoordinator {
             do {
                 for try await event in events { self?.handle(event) }
             } catch {
-                failure = error
+                // Cancelled only by a wrap-up whose engine drain timed out; that is reported
+                // as such, so an error caused by the cancellation is not reported again.
+                if !Task.isCancelled { failure = error }
             }
             self?.engineDidEnd(error: failure)
         }

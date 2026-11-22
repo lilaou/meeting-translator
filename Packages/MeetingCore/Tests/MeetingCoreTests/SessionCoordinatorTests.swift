@@ -8,30 +8,6 @@ import SwiftData
 private let enUS = Locale(identifier: "en-US")
 private let translated = SegmentStatus.translated.rawValue
 
-@MainActor
-private func makeCoordinator(
-    engine: any ASREngine, translator: FakeTranslator = FakeTranslator(),
-    audio: any AudioSource = FakeAudioSource(), readiness: FakeReadiness = FakeReadiness(),
-    store: TranscriptStore? = nil, config: PipelineConfig = PipelineConfig()
-) throws -> (SessionCoordinator, TranscriptStore) {
-    let store = try store ?? TranscriptStore.inMemory()
-    let coordinator = SessionCoordinator(engine: engine, translator: translator, audio: audio,
-                                         readiness: readiness, store: store, config: config)
-    return (coordinator, store)
-}
-
-/// Suspends until `condition` holds, re-checking whenever an observed property changes.
-@MainActor
-private func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
-    while !condition() {
-        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
-            MainActor.assumeIsolated {
-                withObservationTracking { _ = condition() } onChange: { c.resume() }
-            }
-        }
-    }
-}
-
 /// Polls with a generous deadline. Only for waits on a real timer (the pause timeout).
 @MainActor
 private func poll(timeout: Duration = .seconds(2), _ condition: () throws -> Bool) async rethrows -> Bool {
@@ -41,11 +17,6 @@ private func poll(timeout: Duration = .seconds(2), _ condition: () throws -> Boo
         try? await Task.sleep(for: .milliseconds(5))
     }
     return try condition()
-}
-
-private func isFailed(_ state: SessionCoordinator.State) -> Bool {
-    if case .failed(let hint) = state { return !hint.isEmpty }
-    return false
 }
 
 @Suite(.timeLimit(.minutes(1)))

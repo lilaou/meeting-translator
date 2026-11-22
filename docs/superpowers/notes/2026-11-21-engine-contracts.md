@@ -2,7 +2,7 @@
 
 这些约定来自对核心包 `Packages/MeetingCore` 的整支分支复审。`SessionCoordinator`、`TranslationQueue` 和 `SentenceAssembler` 依赖它们，接下来实现真实引擎的人必须遵守。
 
-注意：协调器一侧的识别流收尾和翻译收尾目前还没有时间上限，仍是未完成事项，见文末“未完成事项”。
+注意：协调器一侧的识别流收尾和翻译收尾已有时间上限（Task 11a-2），见文末“未完成事项”。
 
 ## ASREngine（Task 7）
 
@@ -39,7 +39,7 @@
 
 ## 未完成事项（本轮没有修）
 
-- `SessionCoordinator` 收尾时识别流和翻译的排空都需要时间上限：一个永不结束事件流的引擎，或一次永不返回的翻译调用，会让状态永远停在 `.finishing`，`finish()` 不返回，`start` 也不再生效。上限值需要真机数据，必须在 Task 11 验收之前完成。同时补一个“引擎永不结束”的测试（它也能单独验证音频结束这一触发路径）。
+- 【已完成，Task 11a-2】`SessionCoordinator` 收尾时识别流和翻译的排空都有了时间上限（`PipelineConfig.engineDrainTimeout`，默认 10 秒；`PipelineConfig.translationDrainTimeout`，默认 30 秒；两个默认值都是暂定的，要用真机数据再调）。识别流超时：取消引擎任务（事件流的 `onTermination` 随之取消 analyzer），仍然 flush 半句、存储并入队。翻译超时：放弃翻译队列（`TranslationQueue.abandon()`），已到的结果照常写入，其余句子保持“待翻译”、原文已保存（会后可重试），之后才到的结果被丢弃、不再写入。两种超时都照常执行 `endMeeting`、保留全部已存记录，最终状态为 `.failed`（“识别在会议结束时未能及时完成……”/“有 N 句尚未完成翻译（原文已保存）”，与其他错误合并为一条提示）。“引擎永不结束”的测试同时覆盖了 `finish()` 和音频自行结束两种触发路径。
 - `TranscriptStore` 应改用 `container.mainContext`（将来的界面用 `@Query` 读取），并且在第一次装到真机之前，模型需要 `VersionedSchema` / `SchemaMigrationPlan`。
 - 小问题：
   - `audio.start` 在会议已创建之后失败时，历史里会留下一场空的、已结束的会议。

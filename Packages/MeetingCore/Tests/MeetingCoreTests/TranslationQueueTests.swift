@@ -149,3 +149,62 @@ private final class ShortBatchTranslator: Translator, Sendable {
     #expect(translator.singleCalls == texts)
     #expect(translator.batchCalls >= 1)
 }
+
+// MARK: - abandon() (task 11a-2)
+
+@Test func abandonWhenIdleReturnsNothingAndEndsBothStreams() async {
+    let queue = makeQueue(FakeTranslator())
+    #expect(await queue.abandon() == [])
+    #expect(await collect(queue.outcomes).isEmpty)
+    #expect(await collect(queue.lagging) == [])
+}
+
+@Test func abandonReportsInFlightAndQueuedSentencesInEnqueueOrder() async {
+    let gate = Gate()                            // holds "a" in flight
+    let translator = FakeTranslator(gate: gate)
+    let queue = makeQueue(translator, threshold: 2)
+    let ids = [UUID(), UUID(), UUID()]
+    for (id, text) in zip(ids, ["a", "b", "c"]) { await queue.enqueue(segmentID: id, text: text) }
+    #expect(await queue.abandon() == ids)
+    // Both streams are finished at once, although the request for "a" is still running.
+    #expect(await collect(queue.outcomes).isEmpty)
+    #expect(await collect(queue.lagging) == [true])
+    #expect(await queue.abandon() == [])         // twice is safe
+    await queue.finish()                         // returns at once
+    await queue.enqueue(segmentID: UUID(), text: "late")   // ignored
+
+    // The abandoned request returns now: its result is discarded, nothing else is sent.
+    gate.open()
+    await queue.request?.value
+    #expect(translator.batchSizes == [1])
+}
+
+@Test func abandonKeepsOutcomesThatAlreadyArrived() async {
+    let gate = Gate(), stalled = Gate()
+    let queue = TranslationQueue(translator: StallingTranslator(stallOn: "b", gate: gate, stalled: stalled),
+                                 source: en, config: PipelineConfig())
+    let ids = [UUID(), UUID(), UUID()]
+    await queue.enqueue(segmentID: ids[0], text: "a")
+    await queue.enqueue(segmentID: ids[1], text: "b")
+    await queue.enqueue(segmentID: ids[2], text: "c")
+    await stalled.wait()                         // "a" got its outcome before "b" was sent
+    #expect(await queue.abandon() == [ids[1], ids[2]])
+    let got = await collect(queue.outcomes)
+    #expect(got.map(\.segmentID) == [ids[0]])
+    #expect(got.map(\.translation) == ["译:a"])
+    gate.open()
+    await queue.request?.value
+}
+
+@Test func abandonReleasesAWaitingFinish() async {
+    let gate = Gate()
+    let queue = makeQueue(FakeTranslator(gate: gate))
+    await queue.enqueue(segmentID: UUID(), text: "a")
+    let finishing = Task { await queue.finish() }
+    let lost = await queue.abandon()
+    await finishing.value                        // hangs if a waiting finish() is not released
+    #expect(lost.count == 1)
+    #expect(await collect(queue.outcomes).isEmpty)
+    gate.open()
+    await queue.request?.value
+}
