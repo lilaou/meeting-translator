@@ -2,7 +2,8 @@ import MeetingCore
 import SwiftUI
 
 /// Root: the onboarding until both packs are ready and the user taps "开始", then the caption
-/// page (a placeholder until 11d). Starting only enters the page; no meeting starts here.
+/// page. Starting only enters the page; no meeting starts here. The caption page can send the
+/// user back here (`onCheckPacks`) after a failure, e.g. when the system removed a language pack.
 struct RootView: View {
     let onboarding: OnboardingModel
     @State private var started = false
@@ -10,7 +11,7 @@ struct RootView: View {
     var body: some View {
         Group {
             if started, onboarding.step == .ready {
-                Text("字幕页占位")
+                LiveCaptionView(onCheckPacks: { started = false })
             } else {
                 OnboardingView(onboarding: onboarding) { started = true }
             }
