@@ -3,8 +3,10 @@ name: CI
 # Core package only. Every job compiles the Apple speech engine (Task 7) and the
 # Apple translator and readiness checks (Task 8) against the Xcode 26/27 SDKs; on
 # the runners they are only smoke-tested (they conform, report pack states and
-# reject a locale without assets). Microphone capture and the app UI (plan Tasks
-# 9-11) are not in the repo yet. Device-only tests (microphone, language packs,
+# reject a locale without assets). Microphone capture (Task 9) is iOS only: the
+# iOS simulator builds compile it, and its buffer conversion and stream gate are
+# unit-tested on macOS. The app UI is not in the repo yet.
+# Device-only tests (microphone, language packs,
 # real recognition and translation, the self-test, airplane-mode acceptance) can
 # never run here.
 
