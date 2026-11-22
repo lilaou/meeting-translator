@@ -141,11 +141,14 @@ import Observation
         }
         job = task
         jobCancelled = false
-        // Only the caller that started the job forwards its cancellation to it.
+        // Only the caller that started the job forwards its cancellation to it. The forwarder is
+        // built here, on the main actor, so the nonisolated `onCancel` closure captures nothing
+        // but this Sendable closure (Swift 6.3 rejects sending a weak `self` captured there).
+        let forwardCancel: @MainActor @Sendable () -> Void = { [weak self] in self?.cancel(task) }
         await withTaskCancellationHandler {
             await task.value
-        } onCancel: { [weak self] in
-            Task { @MainActor in self?.cancel(task) }
+        } onCancel: {
+            Task { @MainActor in forwardCancel() }
         }
     }
 
