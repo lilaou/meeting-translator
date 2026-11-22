@@ -41,3 +41,32 @@ import Testing
     #expect(AppleSpeechError.wrapping(AppleSpeechError.noCompatibleAudioFormat) == .noCompatibleAudioFormat)
     #expect(AudioFileSourceError.unsupportedConversion.errorDescription?.isEmpty == false)
 }
+
+@Test func volatileWithoutAStartTimeCountsFromTheLastFinalEnd() {
+    var mapper = TranscriptEventMapper()
+    _ = mapper.finalized(text: "A", start: 0, end: 2)
+    #expect(mapper.volatile(text: "next", start: .nan) == [.volatile(text: "next")])
+    // Treated as starting at 2 (the last final end), so it lies after this zero-length final
+    // and is sent again; a raw NaN start would compare false and drop it.
+    #expect(mapper.finalized(text: "", start: .nan, end: .nan)
+        == [.finalized(text: "", range: 2...2), .volatile(text: "next")])
+}
+
+@Test func newerVolatileReplacesTheHypothesisBeforeAnyFinal() {
+    var mapper = TranscriptEventMapper()
+    _ = mapper.volatile(text: "stale later words", start: 5)
+    _ = mapper.volatile(text: "Hello wor", start: 0)
+    // Only the newest hypothesis counts: it overlaps the final, so nothing is re-sent.
+    #expect(mapper.finalized(text: "Hello.", start: 0, end: 1) == [.finalized(text: "Hello.", range: 0...1)])
+
+    var other = TranscriptEventMapper()
+    _ = other.volatile(text: "Hello wor", start: 0)
+    _ = other.volatile(text: "world again", start: 1)
+    #expect(other.finalized(text: "Hello.", start: 0, end: 1)
+        == [.finalized(text: "Hello.", range: 0...1), .volatile(text: "world again")])
+}
+
+@Test func privateUseLocaleNeverMatchesAnInstalledLocale() {
+    let installed = [Locale(identifier: "en-US"), Locale(identifier: "zh-CN")]
+    #expect(installedLocale(matching: Locale(identifier: "qaa-ZZ"), in: installed) == nil)
+}

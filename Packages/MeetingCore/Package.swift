@@ -7,7 +7,8 @@ let package = Package(
     products: [.library(name: "MeetingCore", targets: ["MeetingCore"])],
     targets: [
         .target(name: "MeetingCore"),
-        .testTarget(name: "MeetingCoreTests", dependencies: ["MeetingCore"]),
+        .testTarget(name: "MeetingCoreTests", dependencies: ["MeetingCore"],
+                    resources: [.copy("Fixtures")]),
     ],
     swiftLanguageModes: [.v6]
 )

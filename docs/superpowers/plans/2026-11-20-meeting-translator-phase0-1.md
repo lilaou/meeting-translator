@@ -123,7 +123,7 @@ Probe 是一次性代码，不写测试，不追求结构，只求把规格第 7
   ## 结论：方案 A 继续 / 回到方案选择
   ```
 
-  公开基准录音由执行者挑选一段许可允许再分发的英语会议或讲座录音，放在 `Packages/MeetingCore/Tests/Fixtures/`；自己的会议录音放 `recordings/`（已被忽略）。
+  公开基准录音由执行者挑选一段许可允许再分发的英语会议或讲座录音，放在 `Packages/MeetingCore/Tests/MeetingCoreTests/Fixtures/`（测试资源，见其中的 README）；自己的会议录音放 `recordings/`（已被忽略）。
 
 - [ ] **Step 6: 判定。** 按规格第 7 节退出条件判定。第 1–3 条对英语任一不通过，或第 4、5 条判为不通过：**停止，不要继续 Task 2**，把结果交回需求方重新选方案。
 

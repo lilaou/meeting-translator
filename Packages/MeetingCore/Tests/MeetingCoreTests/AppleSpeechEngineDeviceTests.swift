@@ -5,22 +5,17 @@ import Foundation
 import Testing
 @testable import MeetingCore
 
-/// `Tests/Fixtures/benchmark-en.wav`: a public English recording whose license allows
-/// redistribution. Its three pre-picked keywords go one per line in `benchmark-en.txt`.
-private let fixtures = URL(fileURLWithPath: #filePath)
-    .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures")
-private let recording = fixtures.appendingPathComponent("benchmark-en.wav")
-private let keywordFile = fixtures.appendingPathComponent("benchmark-en.txt")
-
-private let deviceRunRequested = ProcessInfo.processInfo.environment["RUN_DEVICE_TESTS"] != nil
-    && FileManager.default.fileExists(atPath: recording.path)
-
-@Test(.enabled(if: deviceRunRequested, "needs RUN_DEVICE_TESTS and Tests/Fixtures/benchmark-en.wav"))
+/// Runs only with `RUN_DEVICE_TESTS` set and both benchmark files in the test bundle
+/// (see Fixtures/README.md); the skip message names whatever is missing.
+@Test(.enabled(if: BenchmarkFixture.missingRequirements().isEmpty,
+               Comment(rawValue: BenchmarkFixture.skipReason)))
 func appleEngineTranscribesTheBenchmarkRecording() async throws {
     guard #available(iOS 26.0, macOS 26.0, *) else {
         Issue.record("AppleSpeechEngine needs iOS 26 / macOS 26")
         return
     }
+    let recording = try #require(BenchmarkFixture.recording)
+    let keywordFile = try #require(BenchmarkFixture.keywords)
     let keywords = try String(contentsOf: keywordFile, encoding: .utf8)
         .split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
         .filter { !$0.isEmpty }
@@ -49,23 +44,25 @@ func appleEngineTranscribesTheBenchmarkRecording() async throws {
     for keyword in keywords { #expect(transcript.contains(keyword), "missing keyword \(keyword)") }
 }
 
-/// Safe without speech assets: conformance, and `supportedLocales()` returns.
-@Test func appleEngineConformsAndListsInstalledLocales() async {
+/// Smoke test only (not verification of recognition): the engine conforms and
+/// `supportedLocales()` returns, also without speech assets.
+@Test func smokeAppleEngineConformsAndListsInstalledLocales() async {
     guard #available(iOS 26.0, macOS 26.0, *) else { return }
     let engine: any ASREngine = AppleSpeechEngine()
     let locales = await engine.supportedLocales()
     print("AppleSpeechEngine installed locales: \(locales.map { $0.identifier(.bcp47) })")
 }
 
-/// Safe without speech assets: a locale that is not installed fails `preferredFormat` and
-/// finishes the event stream with a readable error instead of leaving it open.
+/// `qaa-ZZ` (private-use language, unknown region) can never be installed, so this checks on
+/// every machine: `preferredFormat` fails, and the event stream finishes with the same
+/// readable error instead of staying open.
 @Test func appleEngineRejectsALocaleThatIsNotInstalled() async throws {
     guard #available(iOS 26.0, macOS 26.0, *) else { return }
     let engine = AppleSpeechEngine()
-    let locale = Locale(identifier: "en-US")
+    let locale = Locale(identifier: "qaa-ZZ")
+    let expected = AppleSpeechError.localeNotInstalled("qaa-ZZ")
     let installed = await engine.supportedLocales().map { $0.identifier(.bcp47) }
-    guard !installed.contains("en-US") else { return }   // assets present: nothing to check
-    let expected = AppleSpeechError.localeNotInstalled("en-US")
+    #expect(!installed.contains("qaa-ZZ"))
 
     await #expect(throws: expected) { _ = try await engine.preferredFormat(for: locale) }
     let (audio, sink) = AsyncStream<AVAudioPCMBuffer>.makeStream()
@@ -73,6 +70,6 @@ func appleEngineTranscribesTheBenchmarkRecording() async throws {
     await #expect(throws: expected) {
         for try await _ in engine.transcribe(audio, locale: locale) {}
     }
-    #expect(expected.localizedDescription.contains("en-US"))
+    #expect(expected.localizedDescription.contains("qaa-ZZ"))
 }
 #endif
