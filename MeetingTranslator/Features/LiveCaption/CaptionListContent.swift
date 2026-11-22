@@ -66,7 +66,8 @@ struct CaptionListContent<Tail: View>: View {
             if userIsScrolling { follow.userScrolled(isAtBottom: atBottom) }
         }
         // Any growth of the content (a new row, a translation landing on any row, a wrapping
-        // live line) follows the bottom, but never under the user's finger; the end of the
+        // live line) follows the bottom, but not while the user is dragging or flinging (a resting
+        // finger in `.tracking` does not count as scrolling yet); the end of the
         // gesture catches up.
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height } action: { old, new in
             if new > old, follow.shouldScrollOnNewContent, !userIsScrolling { scrollToBottom() }
@@ -74,6 +75,10 @@ struct CaptionListContent<Tail: View>: View {
         .overlay(alignment: .bottomTrailing) {
             if follow.showsBackToLatest {
                 Button(CaptionStrings.backToLatest) {
+                    // Tapping this is never a user scroll, whatever phases SwiftUI reports
+                    // for a fling it cuts off: without this, a stale `.idle` after the jump
+                    // could call `userScrolled(isAtBottom: false)` and undo the jump.
+                    userIsScrolling = false
                     follow.jumpToLatest()
                     scrollToBottom()
                 }
