@@ -30,10 +30,12 @@ final class FakePackStates: PackStateProviding, Sendable {
 /// One fresh buffer in the requested format, or `error`. Records every request as
 /// (sentence, sample rate, channel count).
 final class FakeSelfTestAudio: SelfTestAudioProvider, Sendable {
-    let error: FakeError?
+    let error: (any Error)?
     private let log = Mutex<[(sentence: String, sampleRate: Double, channels: UInt32)]>([])
 
     init(error: FakeError? = nil) { self.error = error }
+    /// Throws `error` (any error, e.g. `CancellationError`) from every request.
+    init(throwing error: any Error) { self.error = error }
 
     var requests: [(sentence: String, sampleRate: Double, channels: UInt32)] { log.withLock { $0 } }
 
@@ -72,5 +74,55 @@ final class RecordingTranslator: Translator, Sendable {
     func translate(_ text: String, from source: Locale.Language, context: [String]) async throws -> String {
         log.withLock { $0.append((text, source)) }
         return "会议九点开始。"
+    }
+}
+
+/// Throws `error` from every `translate`.
+struct ThrowingTranslator: Translator {
+    let error: any Error
+
+    func canTranslate(from source: Locale.Language) async -> Bool { true }
+    func translate(_ text: String, from source: Locale.Language, context: [String]) async throws -> String {
+        throw error
+    }
+}
+
+/// Blocks every `translate` until the calling task is cancelled, then throws
+/// `CancellationError`. `entered` opens when the first request arrives.
+final class BlockingTranslator: Translator, Sendable {
+    let entered = Gate()
+
+    func canTranslate(from source: Locale.Language) async -> Bool { true }
+    func translate(_ text: String, from source: Locale.Language, context: [String]) async throws -> String {
+        let release = Gate()
+        await withTaskCancellationHandler {
+            entered.open()
+            await release.wait()
+        } onCancel: {
+            release.open()
+        }
+        try Task.checkCancellation()
+        return "会议九点开始。"
+    }
+}
+
+/// An engine whose event stream yields nothing and only ends when its consumer goes away
+/// (a cancelled iteration then just ends, without an error). `entered` opens when the
+/// stream is created.
+final class SilentASREngine: ASREngine, Sendable {
+    let entered = Gate()
+
+    func supportedLocales() async -> [Locale] { [Locale(identifier: "en-US")] }
+    func preferredFormat(for locale: Locale) async throws -> AVAudioFormat {
+        AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)!
+    }
+    func transcribe(_ audio: AsyncStream<AVAudioPCMBuffer>, locale: Locale)
+        -> AsyncThrowingStream<ASREvent, Error> {
+        let entered = entered
+        return AsyncThrowingStream { continuation in
+            // Kept alive until the consumer goes away; nothing is ever yielded.
+            continuation.onTermination = { [continuation] _ in _ = continuation }
+            entered.open()
+        }
     }
 }

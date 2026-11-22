@@ -26,6 +26,7 @@
 
 1. `preflight` 要快、完全离线，并且只抛 `ReadinessFailure`；其他任何错误都只会显示通用提示。
 2. 协调器从不调用 `selfTest`。
+3. `selfTest` 可能抛 `CancellationError`（调用方取消了任务，或音频/识别/翻译被取消），原样抛出，不会包装成 `selfTestFailed`；调用方必须把它当作“已取消”，不能当作失败。只有真正的自检问题才是 `ReadinessFailure.selfTestFailed(原因)`。（Task 11a-3）
 
 ## AudioSource / AudioCapture（Task 9）
 

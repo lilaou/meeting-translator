@@ -4,6 +4,12 @@ import Testing
 
 private let english = Locale(identifier: "en-US")
 
+private func logic(engine: any ASREngine, translator: any Translator = FakeTranslator(),
+                   audio: FakeSelfTestAudio = FakeSelfTestAudio()) -> ReadinessLogic {
+    ReadinessLogic(engine: engine, translator: translator,
+                   packs: FakePackStates(speech: .installed, translation: .installed), audio: audio)
+}
+
 private func logic(events: [ASREvent] = [.finalized(text: "The Meeting will start at nine", range: 0...2)],
                    engineError: FakeError? = nil,
                    translator: any Translator = FakeTranslator(),
@@ -137,4 +143,57 @@ func preflightMapsEveryCombinationOfPackStates(speech: PackState, translation: P
 @Test func modelReadinessErrorsAreReadable() {
     #expect(ModelReadinessError.speechUnsupported("qaa-ZZ").localizedDescription.contains("qaa-ZZ"))
     #expect(ModelReadinessError.speechInstallFailed("disk full").localizedDescription.contains("disk full"))
+}
+
+// MARK: - Cancellation passes through (11a-R6)
+
+/// Runs `body` and reports whether it threw `CancellationError` (anything else is recorded).
+private func throwsCancellation(_ body: () async throws -> Void) async -> Bool {
+    do {
+        try await body()
+        Issue.record("no error")
+        return false
+    } catch is CancellationError {
+        return true
+    } catch {
+        Issue.record("expected CancellationError, got \(error)")
+        return false
+    }
+}
+
+@Test func selfTestLetsACancelledAudioProviderThrough() async {
+    #expect(await throwsCancellation {
+        try await logic(audio: FakeSelfTestAudio(throwing: CancellationError())).selfTest(locale: english)
+    })
+}
+
+@Test func selfTestLetsACancelledEngineStreamThrough() async {
+    #expect(await throwsCancellation {
+        try await logic(engine: FakeASREngine(events: [], error: CancellationError())).selfTest(locale: english)
+    })
+}
+
+@Test func selfTestLetsACancelledTranslatorThrough() async {
+    #expect(await throwsCancellation {
+        try await logic(translator: ThrowingTranslator(error: CancellationError())).selfTest(locale: english)
+    })
+}
+
+@Test func cancellingTheTaskDuringTranslationEndsTheSelfTestWithCancellation() async {
+    let translator = BlockingTranslator()
+    let readiness = logic(translator: translator)
+    let run = Task { try await readiness.selfTest(locale: english) }
+    await translator.entered.wait()
+    run.cancel()
+    #expect(await throwsCancellation { try await run.value })
+}
+
+@Test func cancellingTheTaskDuringRecognitionEndsTheSelfTestWithCancellation() async {
+    // The cancelled iteration just ends (no error); the partial transcript must not be judged.
+    let engine = SilentASREngine()
+    let readiness = logic(engine: engine)
+    let run = Task { try await readiness.selfTest(locale: english) }
+    await engine.entered.wait()
+    run.cancel()
+    #expect(await throwsCancellation { try await run.value })
 }
