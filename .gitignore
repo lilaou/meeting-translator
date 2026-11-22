@@ -4,4 +4,4 @@ DerivedData/
 .DS_Store
 recordings/
 Local.xcconfig
-*.xcuserdata/
+xcuserdata/
