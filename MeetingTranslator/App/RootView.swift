@@ -1,16 +1,17 @@
 import MeetingCore
 import SwiftUI
 
-/// Placeholder root: 11c and 11d replace the two pages.
+/// Root: the onboarding until both packs are ready and the user taps "开始", then the caption
+/// page (a placeholder until 11d). Starting only enters the page; no meeting starts here.
 struct RootView: View {
     let onboarding: OnboardingModel
+    @State private var started = false
 
     var body: some View {
-        switch onboarding.step {
-        case .ready:
+        if started, onboarding.step == .ready {
             Text("字幕页占位")
-        default:
-            Text("引导页占位")
+        } else {
+            OnboardingView(onboarding: onboarding) { started = true }
         }
     }
 }
