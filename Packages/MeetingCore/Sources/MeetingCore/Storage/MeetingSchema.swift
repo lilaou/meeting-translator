@@ -36,6 +36,11 @@ public enum MeetingMigrationPlan: SchemaMigrationPlan {
 @MainActor public enum MeetingStorage {
     /// The on-disk container the app uses (`url` is the SQLite store file; it is created
     /// if missing and migrated with `MeetingMigrationPlan` if it is older).
+    ///
+    /// The app builds it ONCE, on the main actor, and passes that same instance to both
+    /// SwiftUI's `.modelContainer(_:)` and `TranscriptStore(container:)`, so `@Query` and the
+    /// store share one `mainContext`. `url` should point into Application Support, and its
+    /// parent directory must already exist.
     public static func makeContainer(at url: URL) throws -> ModelContainer {
         try make(ModelConfiguration(schema: schema, url: url))
     }

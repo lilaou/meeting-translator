@@ -7,6 +7,11 @@ import SwiftData
 /// reads, so the UI sees every write at once without cross-context merging. The `@Model`
 /// objects it returns belong to that context: use them on the main actor only.
 ///
+/// UI code never inserts, edits, deletes or saves on `mainContext` (read with `@Query` only,
+/// no `@Bindable` edits): the store is the only writer. A failed store write rolls back the
+/// whole main context, which would also discard anyone else's unsaved edits, and a successful
+/// store save would commit them along with its own changes.
+///
 /// Autosave: the store never relies on `mainContext.autosaveEnabled` and leaves it as the
 /// container's owner set it. Each write saves before it returns and, on failure, rolls back
 /// before it returns, all within one main-actor call, so autosave never sees a write's
@@ -89,7 +94,7 @@ import SwiftData
     /// failure they are rolled back: a retry must not find (and later persist) a half-written
     /// copy, and one bad object must not make every later save fail. The rollback is on the
     /// main context, so it would also drop someone else's unsaved main-context edits; nothing
-    /// else edits it (the UI only reads), and the store's own writes are never left pending.
+    /// else may edit it (see the type doc), and the store's own writes are never left pending.
     private func save() throws {
         do {
             if failNextSaves > 0 {

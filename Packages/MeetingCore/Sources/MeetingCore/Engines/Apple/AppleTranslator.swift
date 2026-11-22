@@ -13,11 +13,12 @@ import Translation
 /// One session per source language is cached in an actor, so calls may come from any
 /// context; the actor runs them one at a time. `context` is ignored.
 ///
-/// Because calls are serialized, a translation call that never returned would block every
-/// later call on the same `AppleTranslator` value, including `selfTest`'s translation if the
-/// app shares one instance. Apple documents that the session throws instead of waiting, so
-/// the risk is low; the coordinator's missing drain time limit is an open item in
-/// docs/superpowers/notes/2026-11-21-engine-contracts.md ("未完成事项", open items).
+/// Because calls are serialized, a translation call that never returned would still block
+/// every later call on the same `AppleTranslator` value, including `selfTest`'s translation if
+/// the app shares one instance. Apple documents that the session throws instead of waiting, so
+/// the risk is low. The coordinator no longer waits for it at the end of a meeting: its drains
+/// are bounded (`PipelineConfig.engineDrainTimeout` 10 s, `translationDrainTimeout` 30 s, both
+/// provisional; see docs/superpowers/notes/2026-11-21-engine-contracts.md).
 ///
 /// Unverified without a device: that a session made with installed packs works offline and
 /// throws (instead of waiting) when the app is in the background or the pack was removed,

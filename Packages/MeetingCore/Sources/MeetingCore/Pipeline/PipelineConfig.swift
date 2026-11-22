@@ -11,9 +11,12 @@ public struct PipelineConfig: Sendable {
     /// audio ended. On timeout the engine is cancelled and the meeting still ends, as `.failed`.
     /// Provisional default, to be tuned with device data.
     public var engineDrainTimeout: Duration = .seconds(10)
-    /// At the end of a meeting, how long to wait for the translation queue to drain. On timeout
-    /// the untranslated sentences stay stored as pending (source kept, can be retried later)
-    /// and the meeting still ends, as `.failed`. Provisional default, to be tuned with device data.
+    /// At the end of a meeting, how long to wait for the translation queue to drain. The bound
+    /// covers the WHOLE remaining backlog, not one stalled call. On timeout the remaining
+    /// sentences stay `pendingTranslation` with their source text saved (Phase 1 has no retry,
+    /// so their translation is not made later) and the meeting still ends, as `.failed`.
+    /// Provisional default, to be tuned with device data; whether to bound "no progress"
+    /// instead is an open design decision (docs/superpowers/notes/2026-11-21-engine-contracts.md).
     public var translationDrainTimeout: Duration = .seconds(30)
     public init() {}
 }
