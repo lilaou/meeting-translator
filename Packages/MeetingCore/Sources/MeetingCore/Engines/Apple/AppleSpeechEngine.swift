@@ -8,6 +8,11 @@ import Speech
 /// `ASREngine` on Apple's on-device `SpeechAnalyzer` + `SpeechTranscriber`.
 /// Only locales whose speech assets are already installed are used; downloading them is the
 /// readiness check's job.
+///
+/// Unverified without a device: that `results` ends after `finalizeAndFinishThroughEndOfInput()`,
+/// that result ranges are in input time order, how fast `cancelAndFinishNow()` ends `results`,
+/// and how the volatile text looks after a final (an overlapping hypothesis is dropped whole,
+/// see `TranscriptEventMapper`).
 @available(iOS 26.0, macOS 26.0, *)
 public struct AppleSpeechEngine: ASREngine {
     public init() {}
@@ -26,8 +31,8 @@ public struct AppleSpeechEngine: ASREngine {
     public func transcribe(_ audio: AsyncStream<AVAudioPCMBuffer>, locale: Locale)
         -> AsyncThrowingStream<ASREvent, Error> {
         let (events, continuation) = AsyncThrowingStream<ASREvent, Error>.makeStream()
-        // The caller hands the stream over and never iterates it itself (contract 7), so
-        // passing it on as `sending` is an ownership transfer.
+        // The caller hands the stream over and never iterates it itself (single consumer, see
+        // `ASREngine.transcribe`), so passing it on as `sending` is an ownership transfer.
         nonisolated(unsafe) let input = audio
         let session = Self.startSession(input, locale: locale, events: continuation)
         // Consumer gone: cancelling the session cancels the analyzer and releases everything.

@@ -43,6 +43,12 @@ func installedLocale(matching locale: Locale, in installed: [Locale]) -> Locale?
 /// - the coordinator clears its volatile text at every final, so a hypothesis that lies
 ///   entirely after the new final is sent again; one that overlaps it is dropped
 ///   (it would repeat finalized words) and the transcriber's next volatile replaces it.
+///
+/// Known gap, to be checked on a device: because an overlapping hypothesis is dropped whole,
+/// the coordinator typically shows no volatile text after a final until the transcriber's next
+/// volatile result. A possible improvement is to re-send only the hypothesis runs whose time
+/// range starts at or after the final's end (the transcriber is already asked for
+/// `.audioTimeRange`).
 struct TranscriptEventMapper: Sendable {
     private(set) var lastFinalEnd: TimeInterval = 0
     private var hypothesis: (text: String, start: TimeInterval)?
