@@ -12,13 +12,18 @@ enum BenchmarkFixture {
     static var keywords: URL? { url("benchmark-en", "txt") }
 
     /// What the device test still needs here; empty when it can run.
+    ///
+    /// `hasRecording` and `hasKeywords` default to what the test bundle really contains. Tests of
+    /// this logic pass them explicitly, so they hold whether or not the fixtures are committed.
     static func missingRequirements(
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        hasRecording: Bool = BenchmarkFixture.recording != nil,
+        hasKeywords: Bool = BenchmarkFixture.keywords != nil
     ) -> [String] {
         var missing: [String] = []
         if environment["RUN_DEVICE_TESTS"] == nil { missing.append("RUN_DEVICE_TESTS is not set") }
-        if recording == nil { missing.append("Fixtures/benchmark-en.wav is not in the test bundle") }
-        if keywords == nil { missing.append("Fixtures/benchmark-en.txt is not in the test bundle") }
+        if !hasRecording { missing.append("Fixtures/benchmark-en.wav is not in the test bundle") }
+        if !hasKeywords { missing.append("Fixtures/benchmark-en.txt is not in the test bundle") }
         return missing
     }
 
