@@ -45,6 +45,14 @@ import Observation
     /// The current step (observable).
     public internal(set) var step: Step = .checking
 
+    /// The source language of the translation pack the model checks (`locale.language`). The
+    /// view MUST build its `TranslationSession.Configuration` with exactly `translationSource`
+    /// and `translationTarget`, or its download succeeds while the check still reports the
+    /// pack missing.
+    public var translationSource: Locale.Language { locale.language }
+    /// The fixed target language, Simplified Chinese (`zh-Hans`); see `translationSource`.
+    public var translationTarget: Locale.Language { TranslationTarget.language }
+
     @ObservationIgnored let readiness: any ReadinessChecking
     @ObservationIgnored let locale: Locale
     /// The pack states of the last query: where `cancel()` returns to.

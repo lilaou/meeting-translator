@@ -24,9 +24,6 @@ import Translation
 /// that batch answers carry the request identifiers, and the translation quality.
 @available(iOS 26.0, macOS 26.0, *)
 public struct AppleTranslator: Translator {
-    /// The spec's fixed target language.
-    static let target = Locale.Language(identifier: "zh-Hans")
-
     private let sessions = TranslationSessions()
 
     public init() {}
@@ -51,7 +48,7 @@ public struct AppleTranslator: Translator {
 
     /// The state of the pack from `source` to Simplified Chinese.
     static func packState(from source: Locale.Language) async -> PackState {
-        switch await LanguageAvailability().status(from: source, to: target) {
+        switch await LanguageAvailability().status(from: source, to: TranslationTarget.language) {
         case .installed: .installed
         case .supported: .notInstalled
         case .unsupported: .unsupported
@@ -95,7 +92,7 @@ actor TranslationSessions {
         guard await AppleTranslator.packState(from: source) == .installed else {
             throw AppleTranslatorError.packNotInstalled(source.minimalIdentifier)
         }
-        let session = TranslationSession(installedSource: source, target: AppleTranslator.target)
+        let session = TranslationSession(installedSource: source, target: TranslationTarget.language)
         cache[key] = session
         return session
     }
