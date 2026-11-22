@@ -1,0 +1,40 @@
+name: MeetingTranslator
+options:
+  bundleIdPrefix: io.github.lilaou
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: YES
+packages:
+  MeetingCore:
+    path: Packages/MeetingCore
+targets:
+  MeetingTranslator:
+    type: application
+    platform: iOS
+    sources:
+      - path: MeetingTranslator
+    dependencies:
+      - package: MeetingCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.lilaou.MeetingTranslator
+        INFOPLIST_FILE: MeetingTranslator/App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  MeetingTranslator:
+    build:
+      targets:
+        MeetingTranslator: all

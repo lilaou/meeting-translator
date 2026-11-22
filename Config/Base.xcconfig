@@ -1,0 +1,3 @@
+// Shared build settings. DEVELOPMENT_TEAM comes from the untracked Local.xcconfig
+// (copy Local.xcconfig.example); without it CI and simulator builds still work.
+#include? "../Local.xcconfig"
