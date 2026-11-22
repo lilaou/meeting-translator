@@ -11,7 +11,7 @@ import Translation
 /// pack every call throws `AppleTranslatorError.packNotInstalled` at once.
 ///
 /// One session per source language is cached in an actor, so calls may come from any
-/// context. `context` is ignored.
+/// context; the actor runs them one at a time. `context` is ignored.
 ///
 /// Unverified without a device: that a session made with installed packs works offline and
 /// throws (instead of waiting) when the app is in the background or the pack was removed,
@@ -54,14 +54,21 @@ public struct AppleTranslator: Translator {
     }
 }
 
-/// Owns the cached sessions and makes every call on them.
+/// Owns the cached sessions and makes every call on them, one call at a time (in arrival
+/// order), so a session is never used by two calls at once.
 @available(iOS 26.0, macOS 26.0, *)
 actor TranslationSessions {
     private var cache: [String: TranslationSession] = [:]
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func translate(_ texts: [String], from source: Locale.Language) async throws -> [String] {
+        await acquire()
+        defer { release() }
         let key = source.maximalIdentifier
-        let session = try await session(for: source, key: key)
+        // `TranslationSession` is not Sendable and its methods run off this actor. Calls are
+        // serialized above, so only this call uses the session until it returns.
+        nonisolated(unsafe) let session = try await cachedSession(for: source, key: key)
         let requests = texts.indices.map {
             TranslationSession.Request(sourceText: texts[$0], clientIdentifier: String($0))
         }
@@ -77,16 +84,27 @@ actor TranslationSessions {
         return try orderedTranslations(answers, count: texts.count)
     }
 
-    private func session(for source: Locale.Language, key: String) async throws -> TranslationSession {
+    private func cachedSession(for source: Locale.Language, key: String) async throws -> TranslationSession {
         if let cached = cache[key] { return cached }
         guard await AppleTranslator.packState(from: source) == .installed else {
             throw AppleTranslatorError.packNotInstalled(source.minimalIdentifier)
         }
-        // Another call may have made one while this one waited.
-        if let cached = cache[key] { return cached }
         let session = TranslationSession(installedSource: source, target: AppleTranslator.target)
         cache[key] = session
         return session
+    }
+
+    private func acquire() async {
+        guard busy else {
+            busy = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    /// Hands the turn to the next waiting call, if any.
+    private func release() {
+        if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() }
     }
 }
 #endif
