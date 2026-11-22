@@ -23,7 +23,8 @@ public struct TranslationOutcome: Sendable {
 ///   `translation == nil`. No sentence is ever dropped and `outcomes` is in enqueue order.
 /// - `lagging` emits `true` when the pending count (queued + in flight) rises to
 ///   `backlogThreshold`, and `false` when it falls back below it.
-/// - `abandon()` gives up at once (bounded wrap-up): see there.
+/// - `abandon()` gives up at once (bounded wrap-up): see there. An abandoned (cancelled)
+///   request makes no per-sentence calls after its batch fails.
 public actor TranslationQueue {
     private struct Item: Sendable {
         let id: UUID
@@ -149,10 +150,12 @@ public actor TranslationQueue {
            batch.count == texts.count {
             return batch
         }
+        // Only `abandon()` cancels a request, and it discards the results: make no more calls
+        // (each would wait for the translator ahead of the next meeting's translations).
         var out: [String?] = []
-        for text in texts {
+        for text in texts where !Task.isCancelled {
             out.append(try? await translator.translate(text, from: source, context: context))
         }
-        return out
+        return out + Array(repeating: nil, count: texts.count - out.count)
     }
 }

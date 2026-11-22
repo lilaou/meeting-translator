@@ -97,6 +97,57 @@ struct WrapUpTimeoutTests {
         #expect(c.state == .failed("有 3 句尚未完成翻译（原文已保存）"))
     }
 
+    /// A meeting that ended by translation timeout leaves its request alive. The next meeting
+    /// on the same coordinator works normally, and when the old request finally returns, its
+    /// result touches neither meeting.
+    @MainActor @Test func aNewMeetingAfterATranslationTimeoutIsUntouchedByTheLateResult() async throws {
+        let gate = Gate()                        // holds the old meeting's request until the end
+        let engine = ManualASREngine()
+        // The bound must fire for the old meeting but never for the new one, whose translation
+        // returns at once: 300 ms leaves a wide margin on a loaded machine.
+        let (c, store) = try makeCoordinator(engine: engine, translator: FakeTranslator(gate: gate),
+                                             config: shortBounds(translation: .milliseconds(300)))
+        await c.start(locale: enUS)
+        let oldQueue = try #require(c.queue)
+        let oldID = try #require(c.meetingID)
+        engine.send(.finalized(text: "Old one. Old two.", range: 0...2))
+        await c.finish()
+        #expect(c.state == .failed("有 2 句尚未完成翻译（原文已保存）"))
+
+        await c.start(locale: enUS)
+        #expect(c.state == .listening)
+        let newID = try #require(c.meetingID)
+        #expect(newID != oldID)
+        #expect(try #require(c.queue) !== oldQueue)
+        engine.send(.finalized(text: "New one.", range: 0...1))
+        await c.finish()
+        #expect(c.state == .idle)
+        let new = try store.segments(of: newID)
+        #expect(new.map(\.sourceText) == ["New one."])
+        #expect(new.map(\.translatedText) == ["译:New one."])
+        #expect(new.map(\.statusRaw) == [translated])
+        let old = try store.segments(of: oldID)
+        #expect(old.map(\.sourceText) == ["Old one.", "Old two."])
+        #expect(old.allSatisfy { $0.statusRaw == pending && $0.translatedText == nil })
+        let before = try snapshot(store, oldID, newID)
+
+        // The old request returns now ("Old one." translated). Its result is discarded by the
+        // abandoned queue; the extra main-actor turns give a wrongly live outcome task the
+        // chance to run before the check (it would be scheduled on the main actor).
+        gate.open()
+        await oldQueue.request?.value
+        for _ in 0..<10 { await Task.yield() }
+        #expect(try snapshot(store, oldID, newID) == before)
+        #expect(c.state == .idle)
+    }
+
+    /// Every stored field that a late result could change, for both meetings.
+    @MainActor private func snapshot(_ store: TranscriptStore, _ ids: UUID...) throws -> [String] {
+        try ids.flatMap { id in
+            try store.segments(of: id).map { "\($0.index)|\($0.sourceText)|\($0.statusRaw)|\($0.translatedText ?? "nil")" }
+        }
+    }
+
     /// Outcomes that arrived before the timeout are applied; only the rest is counted.
     @MainActor @Test func translationsThatArrivedBeforeTheTimeoutAreKept() async throws {
         let gate = Gate(), stalled = Gate()

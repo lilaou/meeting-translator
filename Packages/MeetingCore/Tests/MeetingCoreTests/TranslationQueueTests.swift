@@ -208,3 +208,50 @@ private final class ShortBatchTranslator: Translator, Sendable {
     gate.open()
     await queue.request?.value
 }
+
+/// After `abandon()` cancels the request, a batch that throws because it was cancelled must
+/// not fall through to per-sentence calls: their results are discarded anyway, and each one
+/// would compete with the next meeting's translations for the same translator.
+@Test func anAbandonedRequestMakesNoPerSentenceCalls() async {
+    let gate = Gate(), stalled = Gate()
+    let translator = CancellationAwareTranslator(gate: gate, stalled: stalled)
+    let queue = TranslationQueue(translator: translator, source: en, config: PipelineConfig())
+    for text in ["a", "b", "c"] { await queue.enqueue(segmentID: UUID(), text: text) }
+    await stalled.wait()                         // the batch with "a" is in flight
+    #expect(await queue.abandon().count == 3)
+    gate.open()                                  // the batch now sees it was cancelled, throws
+    await queue.request?.value
+    #expect(translator.batchCalls == 1)
+    #expect(translator.singleCalls == 0)
+}
+
+/// Its batch waits on `gate` (opening `stalled` first), then throws `CancellationError` if
+/// its task was cancelled meanwhile, as a real translator most likely would. Counts calls.
+private final class CancellationAwareTranslator: Translator, Sendable {
+    private let gate: Gate, stalled: Gate
+    private let counts = Mutex((batch: 0, single: 0))
+
+    init(gate: Gate, stalled: Gate) {
+        self.gate = gate
+        self.stalled = stalled
+    }
+
+    var batchCalls: Int { counts.withLock { $0.batch } }
+    var singleCalls: Int { counts.withLock { $0.single } }
+
+    func canTranslate(from source: Locale.Language) async -> Bool { true }
+
+    func translate(_ text: String, from source: Locale.Language, context: [String]) async throws -> String {
+        counts.withLock { $0.single += 1 }
+        return "译:" + text
+    }
+
+    func translateBatch(_ texts: [String], from source: Locale.Language,
+                        context: [String]) async throws -> [String] {
+        counts.withLock { $0.batch += 1 }
+        stalled.open()
+        await gate.wait()
+        try Task.checkCancellation()
+        return texts.map { "译:" + $0 }
+    }
+}
