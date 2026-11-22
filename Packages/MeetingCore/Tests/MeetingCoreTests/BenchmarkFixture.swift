@@ -24,6 +24,6 @@ enum BenchmarkFixture {
 
     /// The device test's skip reason, naming everything that is missing.
     static var skipReason: String {
-        "skipped: " + missingRequirements().joined(separator: "; ")
+        "missing: " + missingRequirements().joined(separator: "; ")
     }
 }
