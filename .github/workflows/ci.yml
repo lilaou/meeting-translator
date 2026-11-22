@@ -1,0 +1,70 @@
+name: CI
+
+# Core package only. The Apple Speech/Translation engines, microphone capture
+# and the app UI (plan Tasks 7-11) are not in the repo yet; device-only tests
+# (microphone, language packs, airplane-mode acceptance) can never run here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PACKAGE: Packages/MeetingCore
+
+jobs:
+  # Unit tests with fake engines on the standard (free for public repos) arm64
+  # macOS 26 runner. Do not switch to the *-large / *-xlarge labels: larger
+  # runners are billed even in public repositories.
+  test-macos-26:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Test
+        run: swift test --package-path "$PACKAGE"
+
+  # Cross-compile the package for the iOS simulator SDK of the Xcode on macos-26.
+  build-ios-26:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build for iOS Simulator
+        run: |
+          SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          echo "SDK: $SDK"
+          swift build --package-path "$PACKAGE" \
+            --sdk "$SDK" --triple arm64-apple-ios18.0-simulator
+
+  # The project targets iOS 27 on device. The `xcode-27` image (macOS 27, Xcode 27,
+  # arm64 only) carries the iOS 27 SDK; `xcode-27-xlarge` would be billed.
+  build-and-test-xcode-27:
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          xcrun --sdk iphonesimulator --show-sdk-version
+      - name: Test
+        run: swift test --package-path "$PACKAGE"
+      - name: Build for iOS Simulator
+        run: |
+          SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          echo "SDK: $SDK"
+          swift build --package-path "$PACKAGE" \
+            --sdk "$SDK" --triple arm64-apple-ios18.0-simulator

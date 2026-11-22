@@ -12,18 +12,18 @@
 
 把整个项目目录拷到 Mac，例如 `~/Projects/iphoneTranslator`。计划和设计文档必须在一起，不要只拷计划文件。
 
-目录还不是 git 仓库，计划的 Task 1 会执行 `git init`。
+目录已经是 git 仓库（计划 Task 1 的建仓步骤已完成），不需要再执行 `git init`。
 
 ## 2. 检查系统与 Xcode
 
-| 要求 | 检查命令 | 期望 |
-|---|---|---|
-| macOS 26 或更新 | `sw_vers -productVersion` | 主版本号 ≥ 26 |
-| Xcode 带 iOS 27 SDK | `xcodebuild -showsdks \| grep iphoneos` | 出现 `iphoneos27` 开头的条目 |
-| 命令行工具指向该 Xcode | `xcode-select -p` | 路径在 `Xcode.app` 内 |
-| Swift 6 | `swift --version` | 主版本号 ≥ 6 |
+| 要求 | 检查命令 | 只开发/测试核心包 | Task 7–11（Apple 引擎、App、真机） |
+|---|---|---|---|
+| macOS | `sw_vers -productVersion` | 主版本号 ≥ 15 | 主版本号 ≥ 26 |
+| Xcode | `xcodebuild -showsdks \| grep iphoneos` | Xcode 16.4 或更新 | 带 iOS 27 SDK，出现 `iphoneos27` 开头的条目 |
+| 命令行工具指向该 Xcode | `xcode-select -p` | 路径在 `Xcode.app` 内 | 同左 |
+| Swift 6 | `swift --version` | 主版本号 ≥ 6 | 同左 |
 
-macOS 版本的要求来自计划：核心逻辑包同时声明了 macOS 26，这样才能在 Mac 上直接跑 `swift test`。
+核心包 `Packages/MeetingCore` 声明的平台是 iOS 18 / macOS 15，所以只跑它的测试不需要 macOS 26。后续加入 Apple 引擎（Task 7–9）时，再把平台提高到 26。
 
 `xcode-select -p` 指向别处时：
 
@@ -102,8 +102,10 @@ Phase 0 需要两类录音：
 
 ```
 按 docs/superpowers/plans/2026-11-20-meeting-translator-phase0-1.md 执行，
-用子代理逐任务的方式，从 Task 1 开始。
+用子代理逐任务的方式，从 Task 1 的 Probe 步骤开始（Task 2、3、4、6、10 以及 Task 8、9 的协议部分已完成）。
 ```
+
+后续引擎任务要遵守的约定和未决事项见 `docs/superpowers/notes/2026-11-21-engine-contracts.md`。
 
 ## 需要你亲自动手的环节
 
@@ -120,3 +122,8 @@ Phase 0 需要两类录音：
 - 计划里的系统 API 名称来自 iOS 26 的文档，没有经过编译验证。iOS 27 SDK 上遇到对不上的地方，以官方文档为准修改，协议和测试不变。
 - 切句长度上限、停顿时限、翻译积压阈值、上下文句数是暂定值，由 Phase 0 的实测数据校准。
 - Apple 的"已支持""已安装"状态有不可靠的报告，所以设计要求下载后实际跑一次识别和翻译做离线自检。
+
+## CI 与许可证
+
+- CI 用 GitHub Actions（`.github/workflows/ci.yml`）：在 `macos-26` 上跑核心包测试和 iOS 模拟器编译，在 `xcode-27` 上用 iOS 27 SDK 再测一遍。只用标准 runner，公开仓库免费；不要改成 `-large` / `-xlarge`，大号 runner 会计费。CI 只能验证编译和用假实现的单元测试，麦克风、系统语言包和飞行模式验收仍需真机。
+- 许可证：MIT，见 `LICENSE`。
