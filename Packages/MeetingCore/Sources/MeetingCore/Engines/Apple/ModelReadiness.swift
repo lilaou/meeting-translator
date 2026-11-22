@@ -19,7 +19,7 @@ import Speech
 ///   `translator`.
 ///
 /// Unverified without a device: the real self-test (synthesis, recognition and translation
-/// offline), whether an installed but unallocated locale can be transcribed, and whether the
+/// offline), whether an installed but unreserved locale can be transcribed, and whether the
 /// pack-state queries stay fast and offline.
 @available(iOS 26.0, macOS 26.0, *)
 public struct ModelReadiness: ReadinessChecking {
@@ -42,15 +42,15 @@ public struct ModelReadiness: ReadinessChecking {
         await ApplePackStates().translationState(from: source)
     }
 
-    /// Allocates the locale for this app (if not yet) and downloads and installs its speech
+    /// Reserves the locale for this app (if not yet) and downloads and installs its speech
     /// model (if not yet). Throws `ModelReadinessError`.
     public func installSpeechPack(for locale: Locale) async throws {
         guard let match = installedLocale(matching: locale, in: await SpeechTranscriber.supportedLocales)
         else { throw ModelReadinessError.speechUnsupported(locale.identifier(.bcp47)) }
         do {
-            let allocated = await AssetInventory.allocatedLocales.map { $0.identifier(.bcp47) }
-            if !allocated.contains(match.identifier(.bcp47)) {
-                _ = try await AssetInventory.allocate(locale: match)
+            let reserved = await AssetInventory.reservedLocales.map { $0.identifier(.bcp47) }
+            if !reserved.contains(match.identifier(.bcp47)) {
+                _ = try await AssetInventory.reserve(locale: match)
             }
             let transcriber = AppleSpeechEngine.makeTranscriber(locale: match)
             if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
