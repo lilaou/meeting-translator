@@ -1,14 +1,16 @@
 name: CI
 
-# Core package only. Every job compiles the Apple speech engine (Task 7) and the
-# Apple translator and readiness checks (Task 8) against the Xcode 26/27 SDKs; on
-# the runners they are only smoke-tested (they conform, report pack states and
-# reject a locale without assets). Microphone capture (Task 9) is iOS only: the
-# iOS simulator builds compile it, and its buffer conversion and stream gate are
-# unit-tested on macOS. The app skeleton (Task 11b) is built by the build-app-* jobs.
-# Device-only tests (microphone, language packs,
-# real recognition and translation, the self-test, airplane-mode acceptance) can
-# never run here.
+# The core package (Swift 6, warnings as errors) and the app target. Every job compiles
+# the Apple speech engine (Task 7) and the Apple translator and readiness checks
+# (Task 8) against the Xcode 26/27 SDKs; on the runners they are only smoke-tested
+# (they conform, report pack states and reject a locale without assets). Microphone
+# capture (Task 9) is iOS only: the iOS simulator builds compile it, and its buffer
+# conversion and stream gate are unit-tested on macOS. The build-ios-26 and
+# build-and-test-xcode-27 jobs also run `build-for-testing` so the package's test code
+# is compiled for iOS (nothing runs). The build-app-* jobs generate the project with a
+# pinned XcodeGen and build the app for the iOS simulator (macos-26 also builds Release).
+# Device-only tests (microphone, language packs, real recognition and translation, the
+# self-test, airplane-mode acceptance) can never run here.
 
 on:
   push:
@@ -102,8 +104,8 @@ jobs:
       # https://github.com/yonaskolb/XcodeGen/releases/tag/2.46.0 (published
       # 2026-07-16). Expected SHA-256 is the digest GitHub shows for that release
       # asset (Releases API "digest" field); checked 2026-11-22 against a local
-      # download. If this step fails on a runner, fall back to
-      # `HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen` and print its version.
+      # download. A checksum mismatch means the release asset changed: investigate
+      # before changing anything, and do not silently switch to unpinned brew.
       - name: Install XcodeGen (pinned, checksum verified)
         run: |
           DIR="$RUNNER_TEMP/xcodegen-dist"
@@ -139,8 +141,8 @@ jobs:
       # https://github.com/yonaskolb/XcodeGen/releases/tag/2.46.0 (published
       # 2026-07-16). Expected SHA-256 is the digest GitHub shows for that release
       # asset (Releases API "digest" field); checked 2026-11-22 against a local
-      # download. If this step fails on a runner, fall back to
-      # `HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen` and print its version.
+      # download. A checksum mismatch means the release asset changed: investigate
+      # before changing anything, and do not silently switch to unpinned brew.
       - name: Install XcodeGen (pinned, checksum verified)
         run: |
           DIR="$RUNNER_TEMP/xcodegen-dist"

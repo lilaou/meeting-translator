@@ -8,16 +8,20 @@
 
 ## 当前状态
 
-- Phase 1 的**代码已完成**：核心包 `Packages/MeetingCore`（切句、翻译队列、会话协调、存储、Apple Speech / Translation 引擎、麦克风采集、引导流程的模型），以及 App 目标 `MeetingTranslator`（引导页和实时字幕页，由 `project.yml` 经 XcodeGen 生成工程）。
+- Phase 1 的**代码已基本完成**：Task 2–4 和 Task 6–11 的代码已完成——核心包 `Packages/MeetingCore`（切句、翻译队列、会话协调、存储、Apple Speech / Translation 引擎、麦克风采集、引导流程的模型）和 App 目标 `MeetingTranslator`（引导页和实时字幕页，由 `project.yml` 经 XcodeGen 生成工程）。**Task 1（Probe 与 `docs/phase0-results.md`）以及依赖它的 Task 5（用 Phase 0 的真实片段回放校验切句、校准 `PipelineConfig`）都还没有做**，仓库里没有 Probe 工程和 Phase 0 结果。
 - **真机验收尚未进行**：没有在任何 iPhone 上运行过。验收步骤和八项验收表（结果栏目前为空）见 `docs/phase1-acceptance.md`。
-- 当前的开发机是 Intel Mac（macOS 15，Xcode 16.4）。Apple Speech / Translation 引擎的 iOS 26 部分用 `#if compiler(>=6.2)` 保护，在 Xcode 16.4 上会被跳过；App 目标使用 iOS 26/27 的 API，在这台机器上无法构建。**CI 是这部分代码目前唯一的编译器**。
+- 当前的开发机是 Intel Mac（macOS 15，Xcode 16.4）。Apple Speech / Translation 引擎的 iOS 26 部分用 `#if compiler(>=6.2)` 保护，在 Xcode 16.4 上会被跳过；App 目标使用 iOS 26 的 API（部署目标 26.0），需要 iOS 26 以上的 SDK，在这台机器上无法构建。**CI 是这部分代码目前唯一的编译器**。
 - 在 macOS 15 + Xcode 16.4 上能做的事：运行核心包的测试 `swift test --package-path Packages/MeetingCore`（用假实现，不涉及真机）。
 
 ## 1. 拷贝项目
 
-把整个项目目录拷到 Mac，例如 `~/Projects/iphoneTranslator`。计划和设计文档必须在一起，不要只拷计划文件。
+项目是公开的 GitHub 仓库（lilaou/meeting-translator），在 Mac 上直接克隆：
 
-目录已经是 git 仓库（计划 Task 1 的建仓步骤已完成），不需要再执行 `git init`。
+```bash
+git clone https://github.com/lilaou/meeting-translator.git
+```
+
+计划和设计文档都在仓库里。Apple 团队 ID 放在被 git 忽略的 `Local.xcconfig`（复制 `Local.xcconfig.example`），不要提交。
 
 ## 2. 检查系统与 Xcode
 
@@ -30,7 +34,7 @@
 
 核心包 `Packages/MeetingCore` 声明的平台是 iOS 18 / macOS 15，所以只跑它的测试不需要 macOS 26；其中的 Apple 引擎用 `#if compiler(>=6.2)` 和可用性检查保护 iOS 26 的 API，App 目标的部署目标是 iOS 26.0。
 
-**Task 7–11 和真机需要 Apple 芯片的 Mac。** 据第三方文章和 Apple 开发者论坛的帖子（<https://developer.apple.com/forums/thread/829619>）报道，Xcode 27 不能在 Intel Mac 上运行，而 iOS 27 的 iPhone 需要 Xcode 27 才能部署；这一点没有对照 Apple 官方页面核实。Intel Mac 因此只能做核心包的开发和测试。
+**Task 7–11 和真机需要 Apple 芯片的 Mac。** 据 Apple 开发者论坛的帖子（<https://developer.apple.com/forums/thread/829619>）报道，Xcode 27 不能在 Intel Mac 上运行，且 iOS 27 的 iPhone 需要 Xcode 27 才能部署；这是帖子里的说法，没有对照 Apple 官方页面核实（审阅时也未能打开该帖子）。另据 Homebrew 的支持层级页面（<https://docs.brew.sh/Support-Tiers>）：Intel x86_64 macOS 是 Tier 3（可用但有警告、不再有新的预编译包），Homebrew 将在 2027 年 9 月或之后移除在 Intel 系统上运行的能力，macOS Tahoe 26 是最后一个能在 Intel 硬件上运行的 macOS。Intel Mac 因此只能做核心包的开发和测试。
 
 `xcode-select -p` 指向别处时：
 
@@ -43,11 +47,11 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 ## 3. 安装工具
 
 ```bash
-# Homebrew（已有则跳过；据 https://docs.brew.sh/Support-Tiers 报道，其安装脚本拒绝在 Intel Mac 上安装，未核实）
+# Homebrew（已有则跳过；曾在一台 Intel macOS 26 虚拟机上观察到安装脚本提示 "only supported on Apple Silicon processors"，仅一次观察，未核实；Intel 的支持情况见上文）
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # XcodeGen：从 project.yml 生成工程（CI 固定使用 2.46.0，见 .github/workflows/ci.yml）
-brew install xcodegen
+brew install xcodegen   # 装的是最新版，不是 CI 固定的 2.46.0
 xcodegen --version
 ```
 
@@ -109,7 +113,7 @@ Phase 0 需要两类录音：
 
 ```
 按 docs/superpowers/plans/2026-11-20-meeting-translator-phase0-1.md 执行，
-用子代理逐任务的方式，从 Task 1 的 Probe 步骤开始（Task 2、3、4、6、10 以及 Task 8、9 的协议部分已完成）。
+用子代理逐任务的方式，从 Task 1 的 Probe 步骤开始，然后做 Task 5（Task 2–4 和 6–11 的代码已完成；Task 11 只剩真机验收，见 docs/phase1-acceptance.md）。
 ```
 
 后续引擎任务要遵守的约定和未决事项见 `docs/superpowers/notes/2026-11-21-engine-contracts.md`。
