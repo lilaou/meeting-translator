@@ -27,16 +27,9 @@ public struct AppleSpeechEngine: ASREngine {
         -> AsyncThrowingStream<ASREvent, Error> {
         let (events, continuation) = AsyncThrowingStream<ASREvent, Error>.makeStream()
         // The caller hands the stream over and never iterates it itself (contract 7), so
-        // moving it into the session task is an ownership transfer.
+        // passing it on as `sending` is an ownership transfer.
         nonisolated(unsafe) let input = audio
-        let session = Task {
-            do {
-                try await Self.run(input, locale: locale, events: continuation)
-                continuation.finish()
-            } catch {
-                continuation.finish(throwing: AppleSpeechError.wrapping(error))
-            }
-        }
+        let session = Self.startSession(input, locale: locale, events: continuation)
         // Consumer gone: cancelling the session cancels the analyzer and releases everything.
         continuation.onTermination = { _ in session.cancel() }
         return events
@@ -55,50 +48,66 @@ public struct AppleSpeechEngine: ASREngine {
         return match
     }
 
-    /// Feeds `audio` to a new analyzer and forwards its results until the input has ended
-    /// and every final has been sent (or until cancelled / failed).
-    private static func run(_ audio: sending AsyncStream<AVAudioPCMBuffer>, locale: Locale,
+    private static func startSession(_ audio: sending AsyncStream<AVAudioPCMBuffer>, locale: Locale,
+                                     events: AsyncThrowingStream<ASREvent, Error>.Continuation)
+        -> Task<Void, Never> {
+        let audio = audio
+        return Task {
+            do {
+                try await run(audio, locale: locale, events: events)
+                events.finish()
+            } catch {
+                events.finish(throwing: AppleSpeechError.wrapping(error))
+            }
+        }
+    }
+
+    /// Feeds `audio` to a new analyzer while a child task forwards its results. Returns once
+    /// the input has ended and every result has been sent; throws on failure or cancellation.
+    private static func run(_ audio: AsyncStream<AVAudioPCMBuffer>, locale: Locale,
                             events: AsyncThrowingStream<ASREvent, Error>.Continuation) async throws {
         let transcriber = makeTranscriber(locale: try await resolve(locale))
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         let (inputs, inputSink) = AsyncStream<AnalyzerInput>.makeStream()
         try await withTaskCancellationHandler {
             try await analyzer.start(inputSequence: inputs)
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask {
-                    for await buffer in audio { inputSink.yield(AnalyzerInput(buffer: buffer)) }
-                    inputSink.finish()
-                    try Task.checkCancellation()
-                    // Analyzes the rest of the input; the results sequence then ends.
-                    try await analyzer.finalizeAndFinishThroughEndOfInput()
-                }
-                group.addTask { try await forwardResults(of: transcriber, to: events) }
-                do {
-                    while try await group.next() != nil {}
-                } catch {
-                    inputSink.finish()
-                    await analyzer.cancelAndFinishNow()
-                    throw error
-                }
+            // A results failure finishes `events` at once; its onTermination then cancels this
+            // task, which ends the feeding loop below.
+            async let forwarded: Void = forwardResults(of: transcriber, to: events)
+            do {
+                for await buffer in audio { inputSink.yield(AnalyzerInput(buffer: buffer)) }
+                inputSink.finish()
+                try Task.checkCancellation()
+                // Analyzes the rest of the input; the results sequence then ends.
+                try await analyzer.finalizeAndFinishThroughEndOfInput()
+            } catch {
+                inputSink.finish()
+                await analyzer.cancelAndFinishNow()
+                throw error
             }
+            try await forwarded      // every remaining final is sent before `events` finishes
         } onCancel: {
             inputSink.finish()
             Task { await analyzer.cancelAndFinishNow() }
         }
-        try Task.checkCancellation()
     }
 
     private static func forwardResults(of transcriber: SpeechTranscriber,
                                        to events: AsyncThrowingStream<ASREvent, Error>.Continuation)
         async throws {
         var mapper = TranscriptEventMapper()
-        for try await result in transcriber.results {
-            let text = String(result.text.characters)
-            let mapped = result.isFinal
-                ? mapper.finalized(text: text, start: result.range.start.seconds,
-                                   end: result.range.end.seconds)
-                : mapper.volatile(text: text, start: result.range.start.seconds)
-            for event in mapped { events.yield(event) }
+        do {
+            for try await result in transcriber.results {
+                let text = String(result.text.characters)
+                let mapped = result.isFinal
+                    ? mapper.finalized(text: text, start: result.range.start.seconds,
+                                       end: result.range.end.seconds)
+                    : mapper.volatile(text: text, start: result.range.start.seconds)
+                for event in mapped { events.yield(event) }
+            }
+        } catch {
+            events.finish(throwing: AppleSpeechError.wrapping(error))
+            throw error
         }
     }
 }
