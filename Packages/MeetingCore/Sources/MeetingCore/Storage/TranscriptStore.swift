@@ -2,12 +2,27 @@ import Foundation
 import SwiftData
 
 /// 会议记录存储。每个写方法立即 save，已定稿句子不会因崩溃丢失。
+///
+/// The store reads and writes through `container.mainContext`, the context SwiftUI `@Query`
+/// reads, so the UI sees every write at once without cross-context merging. The `@Model`
+/// objects it returns belong to that context: use them on the main actor only.
+///
+/// Autosave: the store never relies on `mainContext.autosaveEnabled` and leaves it as the
+/// container's owner set it. Each write saves before it returns and, on failure, rolls back
+/// before it returns, all within one main-actor call, so autosave never sees a write's
+/// changes pending and can neither persist a failed write nor be needed for a good one.
+///
+/// The container should come from `MeetingStorage`, which pins the schema (`SchemaV1`).
 @MainActor public final class TranscriptStore {
     public enum StoreError: Error, Equatable {
         case meetingNotFound(UUID)
         case segmentNotFound(UUID)
     }
 
+    /// Kept so the container outlives the store: unlike `ModelContext(container)`, its
+    /// `mainContext` does not keep the container alive, and using it after the container
+    /// is gone crashes (`inMemory()` would otherwise drop its container at once).
+    private let container: ModelContainer
     private let context: ModelContext
 
     /// Test-only seam: while > 0, each write fails right before `save()` (after its changes
@@ -15,15 +30,15 @@ import SwiftData
     var failNextSaves = 0
     struct InjectedSaveFailure: Error {}
 
+    /// Uses `container.mainContext`. Several stores on one container share that context.
     public init(container: ModelContainer) {
-        self.context = ModelContext(container)
+        self.container = container
+        self.context = container.mainContext
     }
 
+    /// A store on a new in-memory container from `MeetingStorage` (tests, previews).
     public static func inMemory() throws -> TranscriptStore {
-        let container = try ModelContainer(
-            for: Meeting.self, Segment.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
-        return TranscriptStore(container: container)
+        TranscriptStore(container: try MeetingStorage.makeInMemoryContainer())
     }
 
     public func startMeeting(locale: Locale, at date: Date) throws -> UUID {
@@ -72,7 +87,9 @@ import SwiftData
 
     /// Every write saves at once, so the only pending changes are the current write's. On a
     /// failure they are rolled back: a retry must not find (and later persist) a half-written
-    /// copy, and one bad object must not make every later save fail.
+    /// copy, and one bad object must not make every later save fail. The rollback is on the
+    /// main context, so it would also drop someone else's unsaved main-context edits; nothing
+    /// else edits it (the UI only reads), and the store's own writes are never left pending.
     private func save() throws {
         do {
             if failNextSaves > 0 {

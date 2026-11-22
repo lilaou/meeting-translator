@@ -175,9 +175,7 @@ struct SessionCoordinatorTests {
     // MARK: - Controller rulings (R13) and lagging
 
     @MainActor @Test func audioStartFailureEndsTheMeetingItCreated() async throws {
-        let container = try ModelContainer(
-            for: Meeting.self, Segment.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let container = try MeetingStorage.makeInMemoryContainer()
         let (c, _) = try makeCoordinator(engine: FakeASREngine(events: []),
                                          audio: FailingAudioSource(error: .permissionDenied),
                                          store: TranscriptStore(container: container))
@@ -215,9 +213,7 @@ struct SessionCoordinatorTests {
     /// The failure is caused by re-keying the Meeting row from another context (deleting it
     /// would cascade to the earlier segment), so `store.append` throws `meetingNotFound`.
     @MainActor @Test func appendFailureIsSurfacedNotDropped() async throws {
-        let container = try ModelContainer(
-            for: Meeting.self, Segment.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let container = try MeetingStorage.makeInMemoryContainer()
         let engine = ManualASREngine()
         let (c, store) = try makeCoordinator(engine: engine, store: TranscriptStore(container: container))
         await c.start(locale: enUS)
@@ -228,7 +224,8 @@ struct SessionCoordinatorTests {
         engine.send(.volatile(text: "m1"))
         await waitUntil { c.volatileText == "m1" }
 
-        let other = container.mainContext
+        // A context of its own: the store's is `container.mainContext`.
+        let other = ModelContext(container)
         let meeting = try #require(try other.fetch(FetchDescriptor<Meeting>()).first)
         meeting.id = UUID()
         try other.save()
