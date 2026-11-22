@@ -38,7 +38,7 @@ final class TranslationDownloadAttempt {
 ///   step leaves, so the next entry makes `.translationTask` run again (an unchanged
 ///   configuration would not).
 /// - Obligation 10: `translationDownloadFinished(error:)` is called EXACTLY ONCE per attempt on
-///   every path. The one call site is after the do/catch below, which computes the outcome:
+///   every path. The one call site is after the do/catch in the task closure, which computes the outcome:
 ///   success is nil, a thrown error is that error, and cancellation (a `CancellationError`, or
 ///   the task being cancelled at all) is `CancellationError()`, which the model reads as
 ///   "back to needsSetup" and not as a failure. `TranslationDownloadAttempt.report` also
@@ -60,20 +60,18 @@ struct TranslationDownloadModifier: ViewModifier {
             }
             .translationTask(current?.configuration) { session in
                 guard let current else { return }
-                await current.report(await Self.download(session))
+                // The session stays in this closure (it may not be sent elsewhere).
+                let outcome: (any Error)?
+                do {
+                    try await session.prepareTranslation()
+                    outcome = Task.isCancelled ? CancellationError() : nil
+                } catch is CancellationError {
+                    outcome = CancellationError()
+                } catch {
+                    outcome = Task.isCancelled ? CancellationError() : error
+                }
+                await current.report(outcome)
             }
-    }
-
-    /// nil on success, else the error; any cancellation becomes `CancellationError()`.
-    private static func download(_ session: TranslationSession) async -> (any Error)? {
-        do {
-            try await session.prepareTranslation()
-            return Task.isCancelled ? CancellationError() : nil
-        } catch is CancellationError {
-            return CancellationError()
-        } catch {
-            return Task.isCancelled ? CancellationError() : error
-        }
     }
 }
 

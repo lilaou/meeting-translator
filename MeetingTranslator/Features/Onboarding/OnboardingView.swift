@@ -102,21 +102,23 @@ struct OnboardingContent: View {
     }
 }
 
-private func preview(_ step: OnboardingModel.Step, busy: Bool = false) -> some View {
-    OnboardingContent(step: step, isBusy: busy, direction: "英语 → 中文",
-                      download: {}, retry: {}, cancel: {}, start: {})
+extension OnboardingContent {
+    fileprivate static func sample(_ step: OnboardingModel.Step, busy: Bool = false) -> Self {
+        Self(step: step, isBusy: busy, direction: "英语 → 中文",
+             download: {}, retry: {}, cancel: {}, start: {})
+    }
 }
 
-#Preview("checking") { preview(.checking) }
-#Preview("needsSetup") { preview(.needsSetup(speech: .notInstalled, translation: .notInstalled)) }
+#Preview("checking") { OnboardingContent.sample(.checking) }
+#Preview("needsSetup") { OnboardingContent.sample(.needsSetup(speech: .notInstalled, translation: .notInstalled)) }
 #Preview("needsSetup, self-test only") {
-    preview(.needsSetup(speech: .installed, translation: .installed))
+    OnboardingContent.sample(.needsSetup(speech: .installed, translation: .installed))
 }
 #Preview("needsSetup, busy") {
-    preview(.needsSetup(speech: .installed, translation: .notInstalled), busy: true)
+    OnboardingContent.sample(.needsSetup(speech: .installed, translation: .notInstalled), busy: true)
 }
-#Preview("installingSpeech") { preview(.installingSpeech) }
-#Preview("awaitingTranslationDownload") { preview(.awaitingTranslationDownload) }
-#Preview("selfTesting") { preview(.selfTesting) }
-#Preview("ready") { preview(.ready) }
-#Preview("failed") { preview(.failed("翻译离线包下载失败：网络不可用")) }
+#Preview("installingSpeech") { OnboardingContent.sample(.installingSpeech) }
+#Preview("awaitingTranslationDownload") { OnboardingContent.sample(.awaitingTranslationDownload) }
+#Preview("selfTesting") { OnboardingContent.sample(.selfTesting) }
+#Preview("ready") { OnboardingContent.sample(.ready) }
+#Preview("failed") { OnboardingContent.sample(.failed("翻译离线包下载失败：网络不可用")) }
