@@ -143,3 +143,31 @@ import Testing
         #expect(a.ingest(text: "Visit example.com now", range: 1...2).isEmpty)
     }
 }
+
+// Korean as a source language: ASCII terminators, spaces between words.
+
+@Suite struct KoreanSentenceAssemblerTests {
+    @Test func koreanSentencesAreCutAtPeriodAndQuestionMarkKeepingWordSpaces() {
+        var a = SentenceAssembler(maxCharacters: 200)
+        let out = a.ingest(text: "회의를 시작합니다. 질문 있습니까? 다음 안건", range: 0...3)
+        #expect(out.map(\.text) == ["회의를 시작합니다.", "질문 있습니까?"])
+        #expect(a.flush()?.text == "다음 안건")
+    }
+
+    @Test func koreanSentenceSpanningPiecesKeepsTheSpaceBetweenThem() {
+        var a = SentenceAssembler(maxCharacters: 200)
+        #expect(a.ingest(text: "회의는 내일 아침", range: 0...1).isEmpty)
+        let out = a.ingest(text: "아홉 시에 시작합니다.", range: 1...2)
+        #expect(out == [Sentence(text: "회의는 내일 아침 아홉 시에 시작합니다.", start: 0, end: 2)])
+    }
+
+    @Test func overLimitKoreanCutsAtSpaces() {
+        var a = SentenceAssembler(maxCharacters: 12)
+        let original = "회의는 내일 아침 아홉 시에 회의실에서 시작할 예정입니다"
+        var sentences = a.ingest(text: original, range: 0...5)
+        if let tail = a.flush() { sentences.append(tail) }
+        #expect(sentences.count > 1)
+        #expect(sentences.allSatisfy { $0.text.count <= 12 })
+        #expect(sentences.map(\.text).joined(separator: " ") == original)
+    }
+}

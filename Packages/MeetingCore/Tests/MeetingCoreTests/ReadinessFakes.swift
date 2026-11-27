@@ -28,19 +28,22 @@ final class FakePackStates: PackStateProviding, Sendable {
 }
 
 /// One fresh buffer in the requested format, or `error`. Records every request as
-/// (sentence, sample rate, channel count).
+/// (sentence, voice language, sample rate, channel count).
 final class FakeSelfTestAudio: SelfTestAudioProvider, Sendable {
     let error: (any Error)?
-    private let log = Mutex<[(sentence: String, sampleRate: Double, channels: UInt32)]>([])
+    private let log = Mutex<[(sentence: String, language: String, sampleRate: Double, channels: UInt32)]>([])
 
     init(error: FakeError? = nil) { self.error = error }
     /// Throws `error` (any error, e.g. `CancellationError`) from every request.
     init(throwing error: any Error) { self.error = error }
 
-    var requests: [(sentence: String, sampleRate: Double, channels: UInt32)] { log.withLock { $0 } }
+    var requests: [(sentence: String, language: String, sampleRate: Double, channels: UInt32)] {
+        log.withLock { $0 }
+    }
 
-    func speech(_ sentence: String, format: AVAudioFormat) async throws -> AsyncStream<AVAudioPCMBuffer> {
-        let request = (sentence, format.sampleRate, format.channelCount)
+    func speech(_ sentence: String, language: String,
+                format: AVAudioFormat) async throws -> AsyncStream<AVAudioPCMBuffer> {
+        let request = (sentence, language, format.sampleRate, format.channelCount)
         log.withLock { $0.append(request) }
         if let error { throw error }
         let (stream, sink) = AsyncStream<AVAudioPCMBuffer>.makeStream()

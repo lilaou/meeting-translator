@@ -45,20 +45,31 @@ private func sixteenKHz() -> AVAudioFormat {
 }
 
 @Test func synthesizedSpeechConvertsTheSynthesizerAudioToTheRequestedFormat() async throws {
-    let provider = SynthesizedSpeech(makeSynthesizer: { ScriptedSynthesizer() })
+    let provider = SynthesizedSpeech(makeSynthesizer: { _ in ScriptedSynthesizer() })
     var frames: AVAudioFrameCount = 0
-    for await buffer in try await provider.speech("The meeting", format: sixteenKHz()) {
+    for await buffer in try await provider.speech("The meeting", language: "en-US", format: sixteenKHz()) {
         #expect(buffer.format == sixteenKHz())
         frames += buffer.frameLength
     }
     #expect((15_900...16_100).contains(frames))
 }
 
+@Test(arguments: ["en-US", "ko-KR"])
+func synthesizedSpeechMakesTheSynthesizerForTheRequestedLanguage(language: String) async throws {
+    let made = Mutex<[String]>([])
+    let provider = SynthesizedSpeech(makeSynthesizer: { voice in
+        made.withLock { $0.append(voice) }
+        return ScriptedSynthesizer()
+    })
+    _ = try await provider.speech("회의", language: language, format: sixteenKHz())
+    #expect(made.withLock { $0 } == [language])
+}
+
 @Test(.timeLimit(.minutes(1)))
 func cancellingSynthesizedSpeechEndsItAtOnceAndStopsTheSynthesizer() async throws {
     let synthesizer = SilentSynthesizer()
-    let provider = SynthesizedSpeech(deadline: .seconds(3_600), makeSynthesizer: { synthesizer })
-    let task = Task { _ = try await provider.speech("The meeting", format: sixteenKHz()) }
+    let provider = SynthesizedSpeech(deadline: .seconds(3_600), makeSynthesizer: { _ in synthesizer })
+    let task = Task { _ = try await provider.speech("The meeting", language: "en-US", format: sixteenKHz()) }
     await synthesizer.started.wait()
     task.cancel()
     await #expect(throws: CancellationError.self) { try await task.value }
@@ -68,9 +79,9 @@ func cancellingSynthesizedSpeechEndsItAtOnceAndStopsTheSynthesizer() async throw
 @Test(.timeLimit(.minutes(1)))
 func synthesizedSpeechGivesUpAfterTheDeadline() async throws {
     let synthesizer = SilentSynthesizer()
-    let provider = SynthesizedSpeech(deadline: .milliseconds(50), makeSynthesizer: { synthesizer })
+    let provider = SynthesizedSpeech(deadline: .milliseconds(50), makeSynthesizer: { _ in synthesizer })
     await #expect(throws: SelfTestAudioError.timedOut) {
-        _ = try await provider.speech("The meeting", format: sixteenKHz())
+        _ = try await provider.speech("The meeting", language: "en-US", format: sixteenKHz())
     }
     #expect(synthesizer.stopCount == 1)
     #expect(SynthesizedSpeech.defaultDeadline == .seconds(15))
@@ -82,7 +93,8 @@ func synthesizedSpeechGivesUpAfterTheDeadline() async throws {
 @Test(.enabled(if: ProcessInfo.processInfo.environment["RUN_DEVICE_TESTS"] != nil,
                "missing: RUN_DEVICE_TESTS is not set"))
 func synthesizedSpeechYieldsAudioInTheRequestedFormat() async throws {
-    let stream = try await SynthesizedSpeech().speech(ReadinessLogic.spokenSentence, format: sixteenKHz())
+    let stream = try await SynthesizedSpeech().speech(SourceLanguage.english.spokenSentence,
+                                                      language: "en-US", format: sixteenKHz())
     var frames: AVAudioFrameCount = 0
     for await buffer in stream {
         #expect(buffer.format == sixteenKHz())
