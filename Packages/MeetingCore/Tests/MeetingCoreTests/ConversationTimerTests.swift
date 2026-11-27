@@ -36,10 +36,10 @@ struct ConversationTimerTests {
         let s = makeConversation(engine: engine,
                                  timing: conversationTiming(pause: .milliseconds(500)))
         await s.tap(.chinese)
-        var text = "", lastSent = ContinuousClock.now
-        for _ in 0..<6 {
+        var lastSent = ContinuousClock.now
+        for count in 1...6 {
             try await Task.sleep(for: .milliseconds(100))    // the speaker, not a sync point
-            text += "好"
+            let text = String(repeating: "好", count: count)
             lastSent = .now
             engine.send(.volatile(text: text))
             await waitUntil { s.liveText == text || s.phase != .listening(.chinese) }
