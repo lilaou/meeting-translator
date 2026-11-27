@@ -9,7 +9,7 @@
 - iPhone 运行 iOS 27.x，已开启开发者模式（设置 → 隐私与安全性 → 开发者模式），用数据线连到 Mac 并信任。
 - 复制 `Local.xcconfig.example` 为 `Local.xcconfig`（已被 git 忽略），填入自己的团队 ID。不要提交这个文件。
 - 在项目根目录运行 `xcodegen generate` 生成工程（`.xcodeproj` 不进仓库），用 Xcode 选择真机运行 `MeetingTranslator`。
-- 手机首次需要联网下载英语识别和翻译语言包，之后才能进入飞行模式。验收韩语时，还要在引导页选"韩语"，联网下载韩语的识别和翻译语言包并通过自检。
+- 手机首次需要联网下载英语识别和翻译语言包，之后才能进入飞行模式。验收韩语时，还要在引导页选"韩语"（启动时若直接进了字幕页，先点"更换语言"），联网下载韩语的识别和翻译语言包并通过自检。
 - 第 3、4 项需要一段**至少 10 分钟**、许可清晰的英语录音。它可以是 Phase 0 Task 1 的公开基准录音，可以比包里真机测试用的 `benchmark-en.wav`（约 1–3 分钟，见 [Fixtures/README.md](../Packages/MeetingCore/Tests/MeetingCoreTests/Fixtures/README.md)）更长。**录音不在仓库里**，需要你自行提供，许可必须允许再分发（仓库是公开的）；私人会议录音放在被忽略的 `recordings/` 目录，不要放进 Fixtures。第 4 项对照的是 Probe 对**同一段**录音的 final 文本。
 
 ## 2. 八项验收表

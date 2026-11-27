@@ -4,12 +4,14 @@ import SwiftData
 
 /// Everything the app shares: one container (SwiftUI and `TranscriptStore` use the same
 /// `mainContext`), one coordinator, one language selection (which holds the onboarding model
-/// of the chosen language). All of them use one readiness.
+/// of the chosen language) and the route between the pages. All of them use one readiness.
 @MainActor
 struct AppEnvironment {
     let container: ModelContainer
     let coordinator: SessionCoordinator
     let selection: LanguageSelection
+    /// Lives as long as the app, so the launch preflight runs once.
+    let route: AppRoute
 }
 
 /// Wires the real engines together. Returns a result instead of crashing when the on-disk
@@ -39,7 +41,8 @@ enum AppAssembly {
             save: { UserDefaults.standard.set($0, forKey: languageKey) },
             meetingState: { coordinator.state })
         return .success(AppEnvironment(container: container, coordinator: coordinator,
-                                       selection: selection))
+                                       selection: selection,
+                                       route: AppRoute(readiness: readiness)))
     }
 
     private static func storeURL() throws -> URL {

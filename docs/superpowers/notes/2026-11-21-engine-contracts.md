@@ -64,7 +64,7 @@
 5. 实时字幕列表需要一个子视图，它的 `init(meetingID:)` 构造一个按 `meeting?.id` 过滤、按 `index` 排序的 `Query`。
 6. `SessionCoordinator.State.finishing` 可能持续约 1 + 10 + 30 秒（音频、识别、翻译三个上限）：要显示这个状态并禁用按钮；状态回到 `.idle` 或 `.failed` 之前 `start` 会被忽略；要显示 `.failed(message)` 的文字，它可能用“；”连接了多个问题。
 7. `OnboardingModel`、`preflight` 和 `coordinator.start` 使用同一个 `Locale`（当前选择的源语言，只来自 `LanguageSelection.language`）和同一个 `ModelReadiness` 实例。换语言会换一个 `OnboardingModel`：显示它的视图必须随实例换身份（`.id(ObjectIdentifier(onboarding))`，见 `OnboardingPage`），否则 `.task`、下载尝试和 `onDisappear` 不会绑定到新实例。
-8. 界面出现时调用 `OnboardingModel.refresh()`，消失时调用 `cancel()`。
+8. 引导页出现时调用 `OnboardingModel.refresh()`，消失时调用 `cancel()`。启动时由 `AppRoute.launch` 只做一次 `preflight`：通过进字幕页（此时引导模型没有动过，字幕页不依赖它的状态），否则进引导页。之后换页只由用户操作。
 9. 处于 `.awaitingTranslationDownload` 时，用 `.translationTask` + `prepareTranslation()` 下载，并通过 `translationDownloadFinished(error:)` 恰好报告一次；`cancel()` 之后的报告会被丢弃。
 10. `.translationTask` 的配置要由 `step == .awaitingTranslationDownload` 推导出来，这样 `cancel()` 才能停止下载；每次新的尝试都要创建新的配置（或使其失效），否则第二次尝试根本不会开始，模型会一直等待。
 11. 下载的语言对必须是 `OnboardingModel.translationSource` → `OnboardingModel.translationTarget`（zh-Hans），与检查时用的完全一致。
@@ -116,6 +116,7 @@
 - 英语和韩语的语言包能否同时保留（`AssetInventory` 的预留数量有上限，这里从不释放预留）。
 - 引导页换语言：分段控件换语言后新语言会自动检查（`.task` 重新执行），切换过程中没有旧语言的下载弹窗或状态残留；从字幕页“更换语言”返回时，当前语言会先重跑一次自检，期间分段控件不可用。
 
+- 启动路径（`AppRoute`）：语言包已装好时，飞行模式下杀掉重启是否直接进字幕页；启动预检是否很快（期间只显示转圈，没有超时也没有取消按钮）；语言包缺失时是否进引导页。预检只看语言包状态，不跑自检：装好但从未通过自检的语言（例如换语言后没点“开始”就退出）重启后也会直接进字幕页。
 - 换语言的已知小问题（评审记录，暂未修）：
   - 上一种语言那场会议的失败提示在换语言后仍显示在字幕页上；点“重新开始”会按新语言正常开始。
   - 当前语言的作业运行或收尾期间语言选择是锁住的（例如识别包下载不响应取消、试翻译一直不返回）。确认“取消”能否很快解锁。
