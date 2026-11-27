@@ -2,9 +2,11 @@ import AVFoundation
 import Foundation
 import Synchronization
 
-/// Gives the self-test its sample speech, already in the engine's audio format.
+/// Gives the self-test its sample speech, spoken by a voice of `language` (BCP-47), already
+/// in the engine's audio format.
 protocol SelfTestAudioProvider: Sendable {
-    func speech(_ sentence: String, format: AVAudioFormat) async throws -> AsyncStream<AVAudioPCMBuffer>
+    func speech(_ sentence: String, language: String,
+                format: AVAudioFormat) async throws -> AsyncStream<AVAudioPCMBuffer>
 }
 
 enum SelfTestAudioError: Error, Sendable, Equatable, LocalizedError {
@@ -72,7 +74,7 @@ final class SystemSpeechSynthesizer: SpeechSynthesizing {
 /// (`CancellationError`) or after `deadline` (`SelfTestAudioError.timedOut`, 15 s by
 /// default); the synthesizer is then stopped and any late buffer is ignored. Only the
 /// synthesis is bounded here: recognition and translation in `selfTest` are not (a caller
-/// can cancel them). Unverified without a device: that the device has an en-US voice, that
+/// can cancel them). Unverified without a device: that the device has an en-US and a ko-KR voice, that
 /// the system synthesizer ends with an empty buffer on iOS (otherwise every self-test fails
 /// after the deadline), that 15 s is enough there, and that it does not reuse a buffer after
 /// its callback returns.
@@ -80,22 +82,24 @@ struct SynthesizedSpeech: SelfTestAudioProvider {
     static let defaultDeadline: Duration = .seconds(15)
 
     var deadline: Duration = Self.defaultDeadline
-    var makeSynthesizer: @Sendable () -> any SpeechSynthesizing = {
-        SystemSpeechSynthesizer(language: "en-US")
+    /// A synthesizer with a voice of the given language.
+    var makeSynthesizer: @Sendable (String) -> any SpeechSynthesizing = {
+        SystemSpeechSynthesizer(language: $0)
     }
 
-    func speech(_ sentence: String, format: AVAudioFormat) async throws -> AsyncStream<AVAudioPCMBuffer> {
+    func speech(_ sentence: String, language: String,
+                format: AVAudioFormat) async throws -> AsyncStream<AVAudioPCMBuffer> {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("selftest-\(UUID().uuidString).caf")
         defer { try? FileManager.default.removeItem(at: url) }
-        try await synthesize(sentence, into: url)
+        try await synthesize(sentence, language: language, into: url)
         return try audioBuffers(fromFile: url, format: format)
     }
 
     /// Returns at the end of the speech, or throws at the first of: a synthesizer or write
     /// error, cancellation, the deadline. `SpeechFileWriter` resumes the wait exactly once.
-    private func synthesize(_ sentence: String, into url: URL) async throws {
-        let synthesizer = makeSynthesizer()
+    private func synthesize(_ sentence: String, language: String, into url: URL) async throws {
+        let synthesizer = makeSynthesizer(language)
         let writer = SpeechFileWriter(url: url)
         let deadline = deadline
         let timer = Task {

@@ -16,9 +16,8 @@ import Speech
 ///   the only translator; revisit in Task 11 / Phase 2 if a non-Apple translator arrives.
 /// - `installSpeechPack` only installs the speech pack; translation packs are downloaded by
 ///   the app's onboarding (`.translationTask`).
-/// - `selfTest` recognizes synthesized speech ("The meeting will start at nine tomorrow
-///   morning.") with `engine` and translates "The meeting will start at nine." with
-///   `translator`.
+/// - `selfTest` recognizes synthesized speech of the locale's `SourceLanguage` sample with
+///   `engine` and translates its sample sentence with `translator`.
 ///
 /// Unverified without a device: the real self-test (synthesis, recognition and translation
 /// offline), whether an installed but unreserved locale can be transcribed, and whether the

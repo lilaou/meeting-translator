@@ -18,6 +18,8 @@ import Observation
     public internal(set) var volatileText = ""
     public internal(set) var isTranslationLagging = false
     public internal(set) var meetingID: UUID?
+    /// The locale `meetingID` was recorded with.
+    private var meetingLocale: Locale?
     public internal(set) var startedAt: Date?
 
     @ObservationIgnored let engine: any ASREngine
@@ -74,6 +76,7 @@ import Observation
         volatileText = ""
         isTranslationLagging = false
         meetingID = nil
+        meetingLocale = nil
         startedAt = nil
         do {
             try await readiness.preflight(locale: locale)
@@ -88,6 +91,7 @@ import Observation
             created = id
             let wiring = try await Self.connect(engine: engine, audio: audio, locale: locale)
             meetingID = id
+            meetingLocale = locale
             startedAt = now
             launchPipeline(wiring, locale: locale)
             state = .listening
@@ -95,6 +99,12 @@ import Observation
             if let created { try? store.endMeeting(created, at: Date()) }
             state = .failed(Self.hint(for: error))
         }
+    }
+
+    /// `meetingID`, if that meeting was recorded with `locale`; nil otherwise. The caption page
+    /// shows captions only under their own language; nothing stored is changed.
+    public func meetingID(recordedIn locale: Locale) -> UUID? {
+        meetingLocale?.identifier == locale.identifier ? meetingID : nil
     }
 
     /// 仅在 `listening` 时触发收尾；收尾已在进行时等它完成。返回时会议已结束、译文已全部回写。

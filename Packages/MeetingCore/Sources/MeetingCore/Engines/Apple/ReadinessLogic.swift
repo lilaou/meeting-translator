@@ -29,13 +29,6 @@ protocol PackStateProviding: Sendable {
 /// driven through the engine, the translator, a pack-state provider and an audio provider,
 /// so it is tested locally with fakes.
 struct ReadinessLogic: Sendable {
-    /// What the self-test audio says.
-    static let spokenSentence = "The meeting will start at nine tomorrow morning."
-    /// The word the transcript must contain (ignoring case).
-    static let keyword = "meeting"
-    /// What the self-test translates.
-    static let translatedSentence = "The meeting will start at nine."
-
     let engine: any ASREngine
     let translator: any Translator
     let packs: any PackStateProviding
@@ -50,28 +43,34 @@ struct ReadinessLogic: Sendable {
         }
     }
 
-    /// Recognizes the sample speech and translates the sample sentence. A `CancellationError`
+    /// Recognizes the sample speech and translates the sample sentence of `locale`'s language
+    /// (`SourceLanguage`); a language without a sample fails at once. A `CancellationError`
     /// (from the audio provider, the engine, the translator, or the task being cancelled while
     /// recognition or translation runs, whatever error that then produced) propagates: callers treat it as "cancelled",
     /// not as a failure. Any other problem, including another error of the engine, translator
     /// or audio provider, becomes `ReadinessFailure.selfTestFailed` with a readable reason.
     func selfTest(locale: Locale) async throws {
-        let transcript = try await recognizeSample(locale: locale)
+        guard let sample = SourceLanguage.matching(locale) else {
+            throw ReadinessFailure.selfTestFailed(
+                "暂不支持\(CaptionStrings.languageName(of: locale))：没有这种语言的自检样本。")
+        }
+        let transcript = try await recognize(sample, locale: locale)
         let translation: String
         do {
-            translation = try await translator.translate(Self.translatedSentence,
+            translation = try await translator.translate(sample.translatedSentence,
                                                          from: locale.language, context: [])
         } catch {
             throw Self.failure("翻译出错：", error)
         }
         // A cancelled translator may still return; its result is not judged.
         try Task.checkCancellation()
-        try Self.evaluate(transcript: transcript, translation: translation)
+        try Self.evaluate(transcript: transcript, translation: translation, keyword: sample.keyword)
     }
 
-    /// The pass criteria: the transcript contains "meeting" (any case); the translation is
+    /// The pass criteria: the transcript contains `keyword` (any case); the translation is
     /// not blank and contains at least one Han character.
-    static func evaluate(transcript: String, translation: String) throws(ReadinessFailure) {
+    static func evaluate(transcript: String, translation: String,
+                         keyword: String) throws(ReadinessFailure) {
         guard transcript.lowercased().contains(keyword) else {
             throw .selfTestFailed("识别结果里没有“\(keyword)”：“\(transcript)”")
         }
@@ -94,7 +93,7 @@ struct ReadinessLogic: Sendable {
     }
 
     /// The final texts of recognizing the sample speech, joined with spaces.
-    private func recognizeSample(locale: Locale) async throws -> String {
+    private func recognize(_ sample: SourceLanguage, locale: Locale) async throws -> String {
         let format: AVAudioFormat
         do {
             format = try await engine.preferredFormat(for: locale)
@@ -103,7 +102,8 @@ struct ReadinessLogic: Sendable {
         }
         let speech: AsyncStream<AVAudioPCMBuffer>
         do {
-            speech = try await audio.speech(Self.spokenSentence, format: format)
+            speech = try await audio.speech(sample.spokenSentence, language: sample.identifier,
+                                            format: format)
         } catch {
             throw Self.failure("无法生成测试语音：", error)
         }

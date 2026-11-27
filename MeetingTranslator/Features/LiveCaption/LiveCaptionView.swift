@@ -12,8 +12,12 @@ import SwiftUI
 /// environment), so nothing non-`Sendable` crosses an isolation boundary.
 struct LiveCaptionView: View {
     @Environment(SessionCoordinator.self) private var coordinator
-    /// Back to the onboarding page (offered after a failure; see `RootView`).
-    let onCheckPacks: () -> Void
+    /// The chosen language: the direction shown, the locale a meeting starts with, and whose
+    /// captions are shown. It cannot change while this page is on screen.
+    let language: SourceLanguage
+    /// Back to the onboarding page, to change the language or (after a failure) check the
+    /// packs; offered only without a running meeting (see `RootView`).
+    let onShowOnboarding: () -> Void
 
     private var runningSince: Date? {
         switch coordinator.state {
@@ -27,17 +31,19 @@ struct LiveCaptionView: View {
             state: coordinator.state, isLagging: coordinator.isTranslationLagging,
             // Shown only while a meeting runs; `startedAt` is not cleared after wrap-up.
             startedAt: runningSince,
-            direction: CaptionStrings.direction(from: AppAssembly.sourceLocale),
-            start: { [coordinator] in
-                Task { await coordinator.start(locale: AppAssembly.sourceLocale) }
+            direction: CaptionStrings.direction(from: language.locale),
+            start: { [coordinator, locale = language.locale] in
+                Task { await coordinator.start(locale: locale) }
             },
             finish: { [coordinator] in Task { await coordinator.finish() } },
-            checkPacks: onCheckPacks
+            checkPacks: onShowOnboarding, changeLanguage: onShowOnboarding
         ) {
             // The list follows `meetingID`: a new meeting gets a new identity, hence a fresh
             // `Query` and a fresh follow state. Without a meeting (before the first start,
-            // or a failed start) there is nothing to query.
-            if let meetingID = coordinator.meetingID {
+            // or a failed start) there is nothing to query. A meeting recorded in another
+            // language is not shown, so old captions never sit under the new direction (it
+            // stays stored, and shows again if its language is chosen back).
+            if let meetingID = coordinator.meetingID(recordedIn: language.locale) {
                 // Only `VolatileLine` reads `volatileText`, so partial-recognition updates do
                 // not re-render this view, rebuild the `Query` or re-map the rows.
                 CaptionListView(meetingID: meetingID) { VolatileLine() }
@@ -60,6 +66,7 @@ struct LiveCaptionContent<ListContent: View>: View {
     let start: () -> Void
     let finish: () -> Void
     let checkPacks: () -> Void
+    let changeLanguage: () -> Void
     @ViewBuilder let list: ListContent
 
     var body: some View {
@@ -95,19 +102,27 @@ struct LiveCaptionContent<ListContent: View>: View {
     @ViewBuilder private var buttons: some View {
         switch state {
         case .idle:
-            primary(CaptionStrings.start, action: start)
+            VStack(spacing: 8) {
+                primary(CaptionStrings.start, action: start)
+                changeLanguageButton
+            }
         case .preparing, .finishing:
             primary(state == .preparing ? CaptionStrings.start : CaptionStrings.finish, action: {})
                 .disabled(true)
         case .listening:
             primary(CaptionStrings.finish, action: finish)
         case .failed:
-            HStack {
-                Button("检查语言包", action: checkPacks).buttonStyle(.bordered)
-                primary("重新开始", action: start)
+            VStack(spacing: 8) {
+                HStack {
+                    Button("检查语言包", action: checkPacks).buttonStyle(.bordered)
+                    primary("重新开始", action: start)
+                }
+                changeLanguageButton
             }
         }
     }
+
+    private var changeLanguageButton: some View { Button("更换语言", action: changeLanguage) }
 
     private func primary(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) { Text(title).frame(maxWidth: .infinity) }
@@ -131,7 +146,7 @@ extension LiveCaptionContent where ListContent == CaptionListContent<Text> {
     ) -> Self {
         Self(state: state, isLagging: lagging,
              startedAt: started ? .now.addingTimeInterval(-125) : nil,
-             direction: "英语 → 中文", start: {}, finish: {}, checkPacks: {}) {
+             direction: "英语 → 中文", start: {}, finish: {}, checkPacks: {}, changeLanguage: {}) {
             CaptionListContent(rows: rows) {
                 Text(volatile).font(.title3).foregroundStyle(.secondary)
             }

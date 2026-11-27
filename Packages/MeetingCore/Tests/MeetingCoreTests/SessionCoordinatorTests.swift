@@ -364,3 +364,27 @@ struct SessionCoordinatorTests {
         #expect(!c.isTranslationLagging)
     }
 }
+
+// The caption page shows a meeting only under the language it was recorded in.
+
+@MainActor @Test(.timeLimit(.minutes(1)))
+func theLastMeetingIsOfferedOnlyForTheLanguageItWasRecordedIn() async throws {
+    let korean = Locale(identifier: "ko-KR")
+    let (c, store) = try makeCoordinator(engine: FakeASREngine(events: []))
+    #expect(c.meetingID(recordedIn: enUS) == nil)
+
+    await c.start(locale: enUS)
+    await waitUntil { c.state == .idle }
+    let first = try #require(c.meetingID)
+    #expect(c.meetingID(recordedIn: enUS) == first)
+    #expect(c.meetingID(recordedIn: korean) == nil)
+    #expect(c.meetingID == first)   // hidden for the other language, not forgotten or deleted
+    #expect(try store.segments(of: first).isEmpty)
+
+    await c.start(locale: korean)
+    await waitUntil { c.state == .idle }
+    let second = try #require(c.meetingID)
+    #expect(second != first)
+    #expect(c.meetingID(recordedIn: korean) == second)
+    #expect(c.meetingID(recordedIn: enUS) == nil)
+}

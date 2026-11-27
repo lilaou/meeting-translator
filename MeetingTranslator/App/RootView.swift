@@ -1,24 +1,25 @@
 import MeetingCore
 import SwiftUI
 
-/// Root: the onboarding until both packs are ready and the user taps "开始", then the caption
-/// page. Starting only enters the page; no meeting starts here. The caption page can send the
-/// user back here (`onCheckPacks`) after a failure, e.g. when the system removed a language pack.
+/// Root: shows the page of `route`. At launch the preflight of the chosen language decides
+/// between the caption page and the onboarding (with the language choice). From then on only
+/// the user moves: "开始" on the onboarding (offered when it is ready), "更换语言" or "检查语言包"
+/// on the caption page. The caption page does not depend on the onboarding's step, which is
+/// untouched when launch led straight to it. Showing a page starts no meeting.
 struct RootView: View {
-    let onboarding: OnboardingModel
-    @State private var started = false
+    let route: AppRoute
+    let selection: LanguageSelection
 
     var body: some View {
-        Group {
-            if started, onboarding.step == .ready {
-                LiveCaptionView(onCheckPacks: { started = false })
-            } else {
-                OnboardingView(onboarding: onboarding) { started = true }
-            }
-        }
-        // A new "开始" tap is needed whenever the step has left `.ready` in between.
-        .onChange(of: onboarding.step) { _, step in
-            if step != .ready { started = false }
+        switch route.page {
+        case .launching:
+            ProgressView()
+                .task { await route.launch(locale: selection.language.locale) }
+        case .onboarding:
+            OnboardingPage(selection: selection) { route.showCaptions() }
+        case .captions:
+            LiveCaptionView(language: selection.language,
+                            onShowOnboarding: { route.showOnboarding() })
         }
     }
 }
