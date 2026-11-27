@@ -5,13 +5,14 @@
 import Foundation
 import Translation
 
-/// `Translator` on Apple's on-device Translation framework, always into Simplified Chinese.
+/// `Translator` on Apple's on-device Translation framework, into the one target language each
+/// instance is made with (Simplified Chinese for the meeting captions, `init()`).
 /// Only installed language packs are used: downloading them needs SwiftUI's
 /// `.translationTask`, so it happens in the app's onboarding, not here. Without an installed
 /// pack every call throws `AppleTranslatorError.packNotInstalled` at once.
 ///
-/// One session per source language is cached in an actor, so calls may come from any
-/// context; the actor runs them one at a time. `context` is ignored.
+/// One session per source language is cached in an actor (the target never changes), so calls
+/// may come from any context; the actor runs them one at a time. `context` is ignored.
 ///
 /// Because calls are serialized, a translation call that never returned would still block
 /// every later call on the same `AppleTranslator` value, including `selfTest`'s translation if
@@ -25,12 +26,21 @@ import Translation
 /// that batch answers carry the request identifiers, and the translation quality.
 @available(iOS 26.0, macOS 26.0, *)
 public struct AppleTranslator: Translator {
-    private let sessions = TranslationSessions()
+    private let target: Locale.Language
+    private let sessions: TranslationSessions
 
-    public init() {}
+    /// Translates into Simplified Chinese.
+    public init() {
+        self.init(target: TranslationTarget.language)
+    }
+
+    public init(target: Locale.Language) {
+        self.target = target
+        sessions = TranslationSessions(target: target)
+    }
 
     public func canTranslate(from source: Locale.Language) async -> Bool {
-        await Self.packState(from: source) == .installed
+        await Self.packState(from: source, to: target) == .installed
     }
 
     /// Throws instead of returning an empty or blank translation.
@@ -47,9 +57,9 @@ public struct AppleTranslator: Translator {
         return try await sessions.translate(texts, from: source)
     }
 
-    /// The state of the pack from `source` to Simplified Chinese.
-    static func packState(from source: Locale.Language) async -> PackState {
-        switch await LanguageAvailability().status(from: source, to: TranslationTarget.language) {
+    /// The state of the pack from `source` to `target`.
+    static func packState(from source: Locale.Language, to target: Locale.Language) async -> PackState {
+        switch await LanguageAvailability().status(from: source, to: target) {
         case .installed: .installed
         case .supported: .notInstalled
         case .unsupported: .unsupported
@@ -62,9 +72,14 @@ public struct AppleTranslator: Translator {
 /// order), so a session is never used by two calls at once.
 @available(iOS 26.0, macOS 26.0, *)
 actor TranslationSessions {
+    private let target: Locale.Language
     private var cache: [String: TranslationSession] = [:]
     private var busy = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(target: Locale.Language) {
+        self.target = target
+    }
 
     func translate(_ texts: [String], from source: Locale.Language) async throws -> [String] {
         await acquire()
@@ -90,10 +105,10 @@ actor TranslationSessions {
 
     private func cachedSession(for source: Locale.Language, key: String) async throws -> TranslationSession {
         if let cached = cache[key] { return cached }
-        guard await AppleTranslator.packState(from: source) == .installed else {
+        guard await AppleTranslator.packState(from: source, to: target) == .installed else {
             throw AppleTranslatorError.packNotInstalled(source.minimalIdentifier)
         }
-        let session = TranslationSession(installedSource: source, target: TranslationTarget.language)
+        let session = TranslationSession(installedSource: source, target: target)
         cache[key] = session
         return session
     }

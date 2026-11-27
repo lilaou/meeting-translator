@@ -87,7 +87,7 @@ struct ApplePackStates: PackStateProviding {
     }
 
     func translationState(from source: Locale.Language) async -> PackState {
-        await AppleTranslator.packState(from: source)
+        await AppleTranslator.packState(from: source, to: TranslationTarget.language)
     }
 }
 #endif

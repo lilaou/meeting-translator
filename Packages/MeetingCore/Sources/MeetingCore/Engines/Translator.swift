@@ -18,9 +18,10 @@ extension Translator {
     }
 }
 
-/// The spec's fixed target language, Simplified Chinese: the single definition used by
-/// `AppleTranslator` (sessions and the pack-state query behind `translationState(from:)`)
-/// and named to the onboarding view as `OnboardingModel.translationTarget`.
+/// The meeting captions' fixed target language, Simplified Chinese: the single definition used
+/// by `AppleTranslator.init()`, the pack-state query behind `translationState(from:)` and
+/// `ConversationSide.chinese`, and named to the onboarding view as
+/// `OnboardingModel.translationTarget`.
 enum TranslationTarget {
     static let language = Locale.Language(identifier: "zh-Hans")
 }
