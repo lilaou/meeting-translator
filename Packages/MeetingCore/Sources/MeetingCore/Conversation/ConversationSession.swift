@@ -9,6 +9,15 @@ public struct ConversationUtterance: Identifiable, Equatable, Sendable {
     public let original: String
     /// In the other side's language; nil when the translation failed.
     public let translation: String?
+
+    /// Public so that code outside the module, such as the app's previews, can build entries.
+    /// A session numbers its own entries from 0 in the order they were added.
+    public init(id: Int, speaker: ConversationSide, original: String, translation: String?) {
+        self.id = id
+        self.speaker = speaker
+        self.original = original
+        self.translation = translation
+    }
 }
 
 /// The limits that end a turn on their own.
