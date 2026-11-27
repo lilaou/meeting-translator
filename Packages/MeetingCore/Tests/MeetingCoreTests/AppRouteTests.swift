@@ -126,3 +126,24 @@ func cancellingTheLaunchingTaskDoesNotTurnThePreflightIntoAFailure() async {
     await launch.value
     #expect(route.page == .captions)
 }
+
+@MainActor @Test(arguments: [AppRoute.Page.captions, .onboarding])
+func faceToFaceReturnsToWhereItCameFrom(origin: AppRoute.Page) {
+    let route = AppRoute(readiness: PreflightReadiness())
+    if origin == .captions { route.showCaptions() } else { route.showOnboarding() }
+    route.showFaceToFace()
+    #expect(route.page == .faceToFace)
+    route.showFaceToFace()   // a second tap must not make the page its own origin
+    route.closeFaceToFace()
+    #expect(route.page == origin)
+    route.closeFaceToFace()  // nothing to close
+    #expect(route.page == origin)
+}
+
+@MainActor @Test func faceToFaceIsNotOpenedWhileLaunching() async {
+    let route = AppRoute(readiness: PreflightReadiness())
+    route.showFaceToFace()
+    #expect(route.page == .launching)
+    await route.launch(locale: korean)
+    #expect(route.page == .captions)
+}

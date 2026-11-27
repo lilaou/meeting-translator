@@ -1,7 +1,8 @@
 import MeetingCore
 import SwiftUI
 
-/// Direction, elapsed time, "离线" badge and (while translation is behind) "翻译滞后".
+/// Direction, elapsed time, "离线" badge, (while translation is behind) "翻译滞后" and the
+/// "面对面" button.
 struct CaptionTopBar: View {
     let direction: String
     /// `coordinator.startedAt` while a meeting is running; nil means no running meeting, so no time
@@ -9,6 +10,9 @@ struct CaptionTopBar: View {
     /// caller must pass nil once the meeting is over, or the clock would count up forever.
     let startedAt: Date?
     let isLagging: Bool
+    /// False while a meeting is being prepared, running or wrapping up.
+    let canShowFaceToFace: Bool
+    let faceToFace: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -25,7 +29,12 @@ struct CaptionTopBar: View {
             Spacer()
             if isLagging { badge(CaptionStrings.lagging, tint: .orange) }
             badge(CaptionStrings.offline, tint: .green)
+            Button("面对面", action: faceToFace)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!canShowFaceToFace)
         }
+        .lineLimit(1)
         .padding(.horizontal)
         .padding(.vertical, 8)
     }
@@ -40,8 +49,10 @@ struct CaptionTopBar: View {
 }
 
 #Preview("running, lagging") {
-    CaptionTopBar(direction: "英语 → 中文", startedAt: .now.addingTimeInterval(-754), isLagging: true)
+    CaptionTopBar(direction: "英语 → 中文", startedAt: .now.addingTimeInterval(-754), isLagging: true,
+                  canShowFaceToFace: false, faceToFace: {})
 }
 #Preview("no meeting") {
-    CaptionTopBar(direction: "英语 → 中文", startedAt: nil, isLagging: false)
+    CaptionTopBar(direction: "英语 → 中文", startedAt: nil, isLagging: false,
+                  canShowFaceToFace: true, faceToFace: {})
 }

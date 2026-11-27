@@ -10,7 +10,8 @@ struct MeetingTranslatorApp: App {
         WindowGroup {
             switch assembly {
             case .success(let environment):
-                RootView(route: environment.route, selection: environment.selection)
+                RootView(route: environment.route, selection: environment.selection,
+                         faceToFace: environment.faceToFace)
                     .modelContainer(environment.container)
                     .environment(environment.coordinator)
             case .failure(let error):

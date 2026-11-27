@@ -4,7 +4,8 @@ import SwiftData
 
 /// Everything the app shares: one container (SwiftUI and `TranscriptStore` use the same
 /// `mainContext`), one coordinator, one language selection (which holds the onboarding model
-/// of the chosen language) and the route between the pages. All of them use one readiness.
+/// of the chosen language) and the route between the pages. All of them use one readiness, as
+/// does the face-to-face setup.
 @MainActor
 struct AppEnvironment {
     let container: ModelContainer
@@ -12,6 +13,38 @@ struct AppEnvironment {
     let selection: LanguageSelection
     /// Lives as long as the app, so the launch preflight runs once.
     let route: AppRoute
+    let faceToFace: FaceToFaceSetup
+}
+
+/// What the face-to-face screen is made of. The translators (one per direction) and the shared
+/// engine and readiness live as long as the app; `makeVisit` builds the rest for one visit.
+@MainActor
+struct FaceToFaceSetup {
+    let engine: AppleSpeechEngine
+    let readiness: ModelReadiness
+    private let fromChinese = AppleTranslator(target: ConversationSide.chinese.other.translationLanguage)
+    private let fromKorean = AppleTranslator(target: ConversationSide.korean.other.translationLanguage)
+
+    init(engine: AppleSpeechEngine, readiness: ModelReadiness) {
+        self.engine = engine
+        self.readiness = readiness
+    }
+
+    /// A new conversation and a new pack check. The `AudioCapture` is the conversation's own,
+    /// not the meeting's, and new per visit: a stop still pending from a closed visit then
+    /// cannot end the recording of a later one.
+    func makeVisit() -> FaceToFaceVisit {
+        let session = ConversationSession(
+            engine: engine, audio: AudioCapture(),
+            translator: { [fromChinese, fromKorean] side in
+                switch side {
+                case .chinese: fromChinese
+                case .korean: fromKorean
+                }
+            },
+            timing: ConversationTiming())
+        return FaceToFaceVisit(session: session, packs: ConversationPacks(checking: readiness))
+    }
 }
 
 /// Wires the real engines together. Returns a result instead of crashing when the on-disk
@@ -42,7 +75,9 @@ enum AppAssembly {
             meetingState: { coordinator.state })
         return .success(AppEnvironment(container: container, coordinator: coordinator,
                                        selection: selection,
-                                       route: AppRoute(readiness: readiness)))
+                                       route: AppRoute(readiness: readiness),
+                                       faceToFace: FaceToFaceSetup(engine: engine,
+                                                                   readiness: readiness)))
     }
 
     private static func storeURL() throws -> URL {
