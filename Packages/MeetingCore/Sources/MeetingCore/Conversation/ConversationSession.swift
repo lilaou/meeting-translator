@@ -23,7 +23,7 @@ public struct ConversationUtterance: Identifiable, Equatable, Sendable {
 /// The limits that end a turn on their own.
 public struct ConversationTiming: Sendable {
     /// How long the recognized text may stay unchanged, once there is any.
-    public var pause: Duration = .seconds(2)
+    public var pause: Duration = PipelineConfig().pauseTimeout
     /// How long a turn may run without any recognized text.
     public var silence: Duration = .seconds(8)
     /// The longest a turn may record.
