@@ -106,7 +106,8 @@ actor TranslationSessions {
     private func cachedSession(for source: Locale.Language, key: String) async throws -> TranslationSession {
         if let cached = cache[key] { return cached }
         guard await AppleTranslator.packState(from: source, to: target) == .installed else {
-            throw AppleTranslatorError.packNotInstalled(source.minimalIdentifier)
+            throw AppleTranslatorError.packNotInstalled(source.minimalIdentifier,
+                                                       target: target.minimalIdentifier)
         }
         let session = TranslationSession(installedSource: source, target: target)
         cache[key] = session

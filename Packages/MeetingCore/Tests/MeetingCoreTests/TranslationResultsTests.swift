@@ -41,8 +41,16 @@ func orderedTranslationsThrowTheWholeBatchOnABlankText(_ blank: String) {
     }
 }
 
+@Test func aMissingPackIsNamedWithTheTargetThatWasAskedFor() {
+    // The identifiers are the ones `AppleTranslator` passes: `minimalIdentifier`.
+    let meeting = AppleTranslatorError.packNotInstalled("en", target: TranslationTarget.language.minimalIdentifier)
+    #expect(meeting.localizedDescription == "本机尚未安装从“en”到简体中文的翻译语言包。")
+    let korean = AppleTranslatorError.packNotInstalled(
+        "zh", target: ConversationSide.korean.translationLanguage.minimalIdentifier)
+    #expect(korean.localizedDescription == "本机尚未安装从“zh”到韩语的翻译语言包。")
+}
+
 @Test func appleTranslatorErrorsAreReadableAndWrapOtherErrors() {
-    #expect(AppleTranslatorError.packNotInstalled("en").localizedDescription.contains("en"))
     #expect(AppleTranslatorError.wrapping(AppleTranslatorError.emptyResult) == .emptyResult)
     let wrapped = AppleTranslatorError.wrapping(FakeError.translation)
     guard case .translationFailed = wrapped else {
