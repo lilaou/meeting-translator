@@ -9,8 +9,8 @@
 ## 当前状态
 
 - Phase 1 的**代码已基本完成**：Task 2–4 和 Task 6–11 的代码已完成——核心包 `Packages/MeetingCore`（切句、翻译队列、会话协调、存储、Apple Speech / Translation 引擎、麦克风采集、引导流程的模型）和 App 目标 `MeetingTranslator`（引导页和实时字幕页，由 `project.yml` 经 XcodeGen 生成工程）。**Task 1（Probe 与 `docs/phase0-results.md`）以及依赖它的 Task 5（用 Phase 0 的真实片段回放校验切句、校准 `PipelineConfig`）都还没有做**，仓库里没有 Probe 工程和 Phase 0 结果。
-- **真机验收尚未进行**：没有在任何 iPhone 上运行过。验收步骤和八项验收表（结果栏目前为空）见 `docs/phase1-acceptance.md`。
-- 当前的开发机是 Intel Mac（macOS 15，Xcode 16.4）。Apple Speech / Translation 引擎的 iOS 26 部分用 `#if compiler(>=6.2)` 保护，在 Xcode 16.4 上会被跳过；App 目标使用 iOS 26 的 API（部署目标 26.0），需要 iOS 26 以上的 SDK，在这台机器上无法构建。**CI 是这部分代码目前唯一的编译器**。
+- **真机验收尚未进行**。2026-11-27 首次在一台 iPhone 18 Pro Max（iOS 27.2）上试运行：能进到字幕页，识别出两句英语并给出中文译文，结束会议后字幕保留。这是联网状态下的一次非正式试用，不是验收：飞行模式、长时间运行等都没有测过。验收步骤和八项验收表（结果栏目前为空）见 `docs/phase1-acceptance.md`。
+- 有两台开发机。一台是 Apple 芯片的 Mac（Xcode 27.2），能构建 App 并连真机；2026-11-27 在它上面核心包 205 个测试通过，App 的模拟器版和真机架构版编译通过（未签名）。另一台是 Intel Mac（macOS 15，Xcode 16.4）。在 Intel 这台上，Apple Speech / Translation 引擎的 iOS 26 部分用 `#if compiler(>=6.2)` 保护，在 Xcode 16.4 上会被跳过；App 目标使用 iOS 26 的 API（部署目标 26.0），需要 iOS 26 以上的 SDK，在这台机器上无法构建。**在 Intel Mac 上开发时，这部分代码由 CI 或 Apple 芯片的 Mac 编译**。
 - 在 macOS 15 + Xcode 16.4 上能做的事：运行核心包的测试 `swift test --package-path Packages/MeetingCore`（用假实现，不涉及真机）。
 
 ## 1. 拷贝项目

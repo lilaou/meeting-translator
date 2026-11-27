@@ -1,10 +1,10 @@
 # Phase 1 真机验收
 
-状态：**未验证**。到目前为止没有在任何真机上运行过本项目；下面所有"结果"和"日期"栏都是空的，由执行验收的人亲自填写。CI 只能证明代码能编译、核心包的假实现单元测试能运行，不能代替这里的任何一项。
+状态：**验收尚未进行**。2026-11-27 在 iPhone 18 Pro Max（iOS 27.2）上做过一次联网状态下的非正式试运行（能进到字幕页，识别并翻译出两句话，结束后字幕保留），它不算任何一项的结果；下面所有"结果"和"日期"栏都是空的，由执行验收的人亲自填写。CI 只能证明代码能编译、核心包的假实现单元测试能运行，不能代替这里的任何一项。
 
 ## 1. 执行前提
 
-- **Apple 芯片的 Mac**，macOS 26.6 或更高，装有 Xcode 27.x。据 Apple 开发者论坛的帖子（<https://developer.apple.com/forums/thread/829619>）报道，Xcode 27 不能在 Intel Mac 上运行，且运行 iOS 27 的 iPhone 需要 Xcode 27 才能部署；这是帖子里的说法，未对照 Apple 官方页面核实（审阅时未能打开该帖子）。另据 Homebrew 支持层级页面（<https://docs.brew.sh/Support-Tiers>），macOS Tahoe 26 是最后一个能在 Intel 硬件上运行的 macOS。当前的开发机是 Intel（macOS 15，Xcode 16.4），所以只能跑核心包的测试，还没有任何真机验收。
+- **Apple 芯片的 Mac**，macOS 26.6 或更高，装有 Xcode 27.x。据 Apple 开发者论坛的帖子（<https://developer.apple.com/forums/thread/829619>）报道，Xcode 27 不能在 Intel Mac 上运行，且运行 iOS 27 的 iPhone 需要 Xcode 27 才能部署；这是帖子里的说法，未对照 Apple 官方页面核实（审阅时未能打开该帖子）。另据 Homebrew 支持层级页面（<https://docs.brew.sh/Support-Tiers>），macOS Tahoe 26 是最后一个能在 Intel 硬件上运行的 macOS。项目现在有一台满足条件的 Apple 芯片 Mac（Xcode 27.2）；Intel 那台（macOS 15，Xcode 16.4）只能跑核心包的测试。
 - **Phase 0 和 Task 5 尚未做**：Task 1（Probe 与 `docs/phase0-results.md`）和依赖它的 Task 5（真实片段回放校验，同时校准 `PipelineConfig`）都没有运行，仓库里没有 Probe 工程、Phase 0 结果或回放数据。第 4 项需要 Probe 日志，所以必须先完成 Task 1。
 - iPhone 运行 iOS 27.x，已开启开发者模式（设置 → 隐私与安全性 → 开发者模式），用数据线连到 Mac 并信任。
 - 复制 `Local.xcconfig.example` 为 `Local.xcconfig`（已被 git 忽略），填入自己的团队 ID。不要提交这个文件。
