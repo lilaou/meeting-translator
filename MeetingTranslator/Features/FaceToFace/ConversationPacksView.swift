@@ -64,7 +64,7 @@ struct ConversationPacksView: View {
 
 /// A fake for the preview: nothing is installed.
 private struct NothingInstalled: ConversationPackChecking {
-    func speechState(for locale: Locale) async -> PackState { .notInstalled }
+    func conversationSpeechState(for locale: Locale) async -> PackState { .notInstalled }
     func translationState(from: Locale.Language, to: Locale.Language) async -> PackState {
         .notInstalled
     }

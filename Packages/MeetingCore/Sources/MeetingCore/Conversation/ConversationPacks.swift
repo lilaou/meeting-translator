@@ -3,7 +3,10 @@ import Observation
 
 /// What `ConversationPacks` needs from the system; `ModelReadiness` provides it.
 public protocol ConversationPackChecking: Sendable {
-    func speechState(for locale: Locale) async -> PackState
+    /// `.installed` only if the model is there AND this app has reserved its locale; else
+    /// `installSpeechPack` must be able to make it so. Distinct from the meeting's
+    /// `ReadinessChecking.speechState`, which ignores reservations.
+    func conversationSpeechState(for locale: Locale) async -> PackState
     func translationState(from: Locale.Language, to: Locale.Language) async -> PackState
     func installSpeechPack(for locale: Locale) async throws
 }

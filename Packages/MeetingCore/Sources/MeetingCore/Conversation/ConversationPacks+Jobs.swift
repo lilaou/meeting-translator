@@ -61,7 +61,7 @@ extension ConversationPacks {
         for pack in ConversationPack.all {
             switch pack {
             case .speech(let side):
-                states[pack] = await checking.speechState(for: side.speechLocale)
+                states[pack] = await checking.conversationSpeechState(for: side.speechLocale)
             case .translation(let side):
                 states[pack] = await checking.translationState(from: side.translationLanguage,
                                                                to: side.other.translationLanguage)

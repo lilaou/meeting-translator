@@ -52,7 +52,7 @@ final class ScriptedPacks: ConversationPackChecking, Sendable {
     /// Plays the view (or the system) changing a pack.
     func set(_ pack: ConversationPack, _ value: PackState) { state.withLock { $0.packs[pack] = value } }
 
-    func speechState(for locale: Locale) async -> PackState {
+    func conversationSpeechState(for locale: Locale) async -> PackState {
         report(ConversationSide.allCases.first { $0.speechLocale == locale }.map { .speech($0) })
     }
 
