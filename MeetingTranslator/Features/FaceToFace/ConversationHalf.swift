@@ -24,7 +24,7 @@ struct ConversationBoard: View {
     private func half(_ side: ConversationSide, close: (() -> Void)?) -> some View {
         ConversationHalf(
             side: side, phase: phase, liveText: liveText, utterances: utterances,
-            notice: lastSpeaker == side ? notice : nil, tap: { tap(side) }, close: close)
+            notice: notice?.shown(on: side, speaker: lastSpeaker), tap: { tap(side) }, close: close)
     }
 }
 
@@ -35,8 +35,8 @@ struct ConversationHalf: View {
     let phase: ConversationSession.Phase
     let liveText: String
     let utterances: [ConversationUtterance]
-    /// Only the one of this side's own turn.
-    let notice: ConversationSession.Notice?
+    /// Already chosen for this side (see `Notice.shown`).
+    let notice: ConversationShownNotice?
     let tap: () -> Void
     /// The close button; only the lower half has it, and it is never disabled.
     let close: (() -> Void)?
@@ -122,18 +122,14 @@ struct ConversationHalf: View {
         }
     }
 
-    @ViewBuilder private func noticeText(_ notice: ConversationSession.Notice) -> some View {
+    @ViewBuilder private func noticeText(_ notice: ConversationShownNotice) -> some View {
         switch notice {
         case .notHeard:
             Text(texts.notHeard).foregroundStyle(.orange)
-        case .failed(let reason):
-            // The reason exists only in Chinese; it stays visible on either side.
-            VStack(alignment: .leading, spacing: 4) {
-                if side == .korean { Text(texts.failed) }
-                Text(reason)
-            }
-            .font(.footnote)
-            .foregroundStyle(.red)
+        case .failed:
+            Text(texts.failed).font(.footnote).foregroundStyle(.red)
+        case .reason(let reason):
+            Text(reason).font(.footnote).foregroundStyle(.red)
         }
     }
 
@@ -180,5 +176,9 @@ extension ConversationBoard {
 #Preview("listening") { ConversationBoard.sample(.listening(.chinese), liveText: "我们明天") }
 #Preview("not heard") {
     ConversationBoard(phase: .idle, liveText: "", utterances: [], notice: .notHeard,
+                      lastSpeaker: .korean, tap: { _ in }, close: {})
+}
+#Preview("Korean turn failed") {
+    ConversationBoard(phase: .idle, liveText: "", utterances: [], notice: .failed("无法开始录音"),
                       lastSpeaker: .korean, tap: { _ in }, close: {})
 }
