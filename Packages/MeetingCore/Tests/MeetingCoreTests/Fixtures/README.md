@@ -20,5 +20,5 @@ that are not in the repository yet:
 The test is skipped unless `RUN_DEVICE_TESTS` is set and both files are in the test bundle;
 the skip message names whatever is missing. Run it on an iPhone with iOS 26 or later and the
 English speech assets installed, with the environment variable `RUN_DEVICE_TESTS=1` set in
-the test scheme (until the app project exists, attach the test to the Probe project's test
-target, as the plan describes).
+the test scheme, or as `TEST_RUNNER_RUN_DEVICE_TESTS=1` in the shell when running
+`xcodebuild test` on a device (see `docs/phase1-acceptance.md`; unverified).
