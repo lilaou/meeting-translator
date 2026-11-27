@@ -6,6 +6,7 @@ enum UserMessages {
     static let speechPack = "语音识别离线包"
     static let translationPack = "翻译离线包"
     static let selfTestFailedPrefix = "离线自检未通过："
+    static let recognitionTimedOut = "识别未能及时完成"
 
     /// The hint for an error of the session: readiness and audio errors have their own texts,
     /// anything else shows its `localizedDescription`.

@@ -95,7 +95,7 @@ public struct SentenceAssembler: Sendable {
 
     /// Han, kana, CJK punctuation and full-width forms: written without spaces between words.
     /// Hangul is deliberately not included, because Korean separates words with spaces.
-    private static func joinsWithoutSpace(_ c: Character) -> Bool {
+    static func joinsWithoutSpace(_ c: Character) -> Bool {
         guard let v = c.unicodeScalars.first?.value else { return false }
         return (0x3000...0x9FFF).contains(v) || (0xFF00...0xFFEF).contains(v)
     }

@@ -12,9 +12,14 @@ struct PipelineWiring: Sendable {
 
 extension SessionCoordinator {
     /// Starts the audio and hands the engine our own audio stream, so we learn when the audio ends.
-    nonisolated static func connect(engine: any ASREngine, audio: any AudioSource,
-                                    locale: Locale) async throws -> PipelineWiring {
+    /// If `isWanted` is false once the format is known, throws `CancellationError` without
+    /// starting the audio.
+    nonisolated static func connect(
+        engine: any ASREngine, audio: any AudioSource, locale: Locale,
+        isWanted: @MainActor () -> Bool = { true }
+    ) async throws -> PipelineWiring {
         let format = try await engine.preferredFormat(for: locale)
+        guard await isWanted() else { throw CancellationError() }
         let source = try await audio.start(format: format)
         let (engineAudio, sink) = AsyncStream<AVAudioPCMBuffer>.makeStream()
         let forwarder = Task {
