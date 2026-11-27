@@ -3,19 +3,21 @@ import MeetingCore
 import SwiftData
 
 /// Everything the app shares: one container (SwiftUI and `TranscriptStore` use the same
-/// `mainContext`), one coordinator, one onboarding model.
+/// `mainContext`), one coordinator, one language selection (which holds the onboarding model
+/// of the chosen language). All of them use one readiness.
 @MainActor
 struct AppEnvironment {
     let container: ModelContainer
     let coordinator: SessionCoordinator
-    let onboarding: OnboardingModel
+    let selection: LanguageSelection
 }
 
 /// Wires the real engines together. Returns a result instead of crashing when the on-disk
 /// store cannot be created.
 @MainActor
 enum AppAssembly {
-    static let sourceLocale = Locale(identifier: "en-US")
+    /// The `UserDefaults` key of the chosen language; only its identifier is stored.
+    private static let languageKey = "sourceLanguage"
 
     static func make() -> Result<AppEnvironment, AssemblyError> {
         let container: ModelContainer
@@ -31,9 +33,13 @@ enum AppAssembly {
             engine: engine, translator: translator, audio: AudioCapture(),
             readiness: readiness, store: TranscriptStore(container: container),
             config: PipelineConfig())
-        let onboarding = OnboardingModel(readiness: readiness, locale: sourceLocale)
+        let selection = LanguageSelection(
+            readiness: readiness,
+            storedIdentifier: UserDefaults.standard.string(forKey: languageKey),
+            save: { UserDefaults.standard.set($0, forKey: languageKey) },
+            meetingState: { coordinator.state })
         return .success(AppEnvironment(container: container, coordinator: coordinator,
-                                       onboarding: onboarding))
+                                       selection: selection))
     }
 
     private static func storeURL() throws -> URL {

@@ -6,18 +6,9 @@ import SwiftUI
 /// `cancel()` when it disappears, and downloads the translation pack.
 struct OnboardingView: View {
     let onboarding: OnboardingModel
+    /// Of the language `onboarding` was made for (obligation 7; see `OnboardingPage`).
     let direction: String
     let onStart: () -> Void
-
-    /// The default direction label is built from `AppAssembly.sourceLocale`, which must stay
-    /// the same constant the model's locale comes from (obligation 7).
-    init(onboarding: OnboardingModel,
-         direction: String = CaptionStrings.direction(from: AppAssembly.sourceLocale),
-         onStart: @escaping () -> Void) {
-        self.onboarding = onboarding
-        self.direction = direction
-        self.onStart = onStart
-    }
 
     var body: some View {
         OnboardingContent(
