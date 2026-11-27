@@ -34,6 +34,24 @@ import Testing
     #expect(installedLocale(matching: Locale(identifier: "fr"), in: installed) == nil)
 }
 
+@Test func aRegionQualifiedLocaleFallsBackToLanguageAndRegionIgnoringScript() {
+    let installed = ["yue-CN", "zh-Hant-TW", "zh-Hans-CN"].map { Locale(identifier: $0) }
+    func match(_ wanted: String) -> String? {
+        installedLocale(matching: Locale(identifier: wanted), in: installed)?.identifier(.bcp47)
+    }
+    #expect(match("zh-CN") == Locale(identifier: "zh-Hans-CN").identifier(.bcp47))
+    #expect(match("zh-TW") == Locale(identifier: "zh-Hant-TW").identifier(.bcp47))
+    #expect(match("yue-CN") == "yue-CN")
+    #expect(match("zh-HK") == nil)
+    let cantonese = [Locale(identifier: "yue-CN")]
+    #expect(installedLocale(matching: Locale(identifier: "zh-CN"), in: cantonese) == nil)
+}
+
+@Test func anExactMatchWinsOverTheRegionFallback() {
+    let installed = ["zh-Hans-CN", "zh-CN"].map { Locale(identifier: $0) }
+    #expect(installedLocale(matching: Locale(identifier: "zh-CN"), in: installed)?.identifier(.bcp47) == "zh-CN")
+}
+
 @Test func appleSpeechErrorsHaveReadableDescriptions() {
     struct Other: LocalizedError { var errorDescription: String? { "boom" } }
     #expect(AppleSpeechError.localeNotInstalled("en-US").localizedDescription.contains("en-US"))

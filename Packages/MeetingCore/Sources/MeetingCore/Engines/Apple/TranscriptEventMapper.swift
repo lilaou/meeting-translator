@@ -27,13 +27,16 @@ public enum AppleSpeechError: Error, Sendable, Equatable, LocalizedError {
     }
 }
 
-/// Picks the installed locale for `locale`: the same BCP-47 identifier, or, when `locale`
-/// names no region, the first installed locale of the same language.
+/// Picks the installed locale for `locale`: the same BCP-47 identifier; else, when `locale`
+/// names a region, the first of the same language and region whatever its script (`zh-CN`
+/// finds `zh-Hans-CN`); else the first installed locale of the same language.
 func installedLocale(matching locale: Locale, in installed: [Locale]) -> Locale? {
     let wanted = locale.identifier(.bcp47)
     if let exact = installed.first(where: { $0.identifier(.bcp47) == wanted }) { return exact }
-    guard locale.region == nil, let language = locale.language.languageCode else { return nil }
-    return installed.first { $0.language.languageCode == language }
+    guard let language = locale.language.languageCode else { return nil }
+    return installed.first {
+        $0.language.languageCode == language && (locale.region == nil || $0.region == locale.region)
+    }
 }
 
 /// Turns transcriber results into `ASREvent`s that keep the ASREngine contract:

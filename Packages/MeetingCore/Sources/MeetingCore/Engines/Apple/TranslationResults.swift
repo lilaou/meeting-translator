@@ -3,9 +3,9 @@ import Foundation
 /// Errors of `AppleTranslator`. The queue and the UI show `localizedDescription`, so every
 /// case carries a readable message. Plain Foundation, so it is not gated by the SDK.
 public enum AppleTranslatorError: Error, Sendable, Equatable, LocalizedError {
-    /// The translation pack from this language (BCP-47 identifier) to Simplified Chinese
-    /// is not installed.
-    case packNotInstalled(String)
+    /// The translation pack from this language to `target` (both BCP-47 identifiers) is not
+    /// installed.
+    case packNotInstalled(String, target: String)
     /// A translation came back empty or blank.
     case emptyResult
     /// The batch answers do not match the requests one to one.
@@ -15,8 +15,8 @@ public enum AppleTranslatorError: Error, Sendable, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .packNotInstalled(let identifier):
-            "本机尚未安装从“\(identifier)”到简体中文的翻译语言包。"
+        case .packNotInstalled(let identifier, let target):
+            "本机尚未安装从“\(identifier)”到\(Self.targetName(target))的翻译语言包。"
         case .emptyResult:
             "翻译结果为空。"
         case .mismatchedResults:
@@ -24,6 +24,16 @@ public enum AppleTranslatorError: Error, Sendable, Equatable, LocalizedError {
         case .translationFailed(let reason):
             "翻译失败：\(reason)"
         }
+    }
+
+    /// "简体中文" for `TranslationTarget.language`, however its identifier is written (its
+    /// minimal form is "zh"); otherwise the language's Chinese name ("韩语").
+    private static func targetName(_ identifier: String) -> String {
+        let language = Locale.Language(identifier: identifier)
+        guard language.maximalIdentifier != TranslationTarget.language.maximalIdentifier else {
+            return "简体中文"
+        }
+        return CaptionStrings.languageName(of: Locale(identifier: identifier))
     }
 
     /// Keeps an `AppleTranslatorError`; wraps any other error with its description.

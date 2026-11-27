@@ -18,6 +18,9 @@ struct LiveCaptionView: View {
     /// Back to the onboarding page, to change the language or (after a failure) check the
     /// packs; offered only without a running meeting (see `RootView`).
     let onShowOnboarding: () -> Void
+    /// To the face-to-face screen; offered only without a running meeting, so the two never
+    /// hold the microphone together.
+    let onShowFaceToFace: () -> Void
 
     private var runningSince: Date? {
         switch coordinator.state {
@@ -36,7 +39,8 @@ struct LiveCaptionView: View {
                 Task { await coordinator.start(locale: locale) }
             },
             finish: { [coordinator] in Task { await coordinator.finish() } },
-            checkPacks: onShowOnboarding, changeLanguage: onShowOnboarding
+            checkPacks: onShowOnboarding, changeLanguage: onShowOnboarding,
+            faceToFace: onShowFaceToFace
         ) {
             // The list follows `meetingID`: a new meeting gets a new identity, hence a fresh
             // `Query` and a fresh follow state. Without a meeting (before the first start,
@@ -67,11 +71,20 @@ struct LiveCaptionContent<ListContent: View>: View {
     let finish: () -> Void
     let checkPacks: () -> Void
     let changeLanguage: () -> Void
+    let faceToFace: () -> Void
     @ViewBuilder let list: ListContent
+
+    private var canShowFaceToFace: Bool {
+        switch state {
+        case .idle, .failed: true
+        case .preparing, .listening, .finishing: false
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            CaptionTopBar(direction: direction, startedAt: startedAt, isLagging: isLagging)
+            CaptionTopBar(direction: direction, startedAt: startedAt, isLagging: isLagging,
+                          canShowFaceToFace: canShowFaceToFace, faceToFace: faceToFace)
             list
             Divider()
             statusArea
@@ -146,7 +159,8 @@ extension LiveCaptionContent where ListContent == CaptionListContent<Text> {
     ) -> Self {
         Self(state: state, isLagging: lagging,
              startedAt: started ? .now.addingTimeInterval(-125) : nil,
-             direction: "英语 → 中文", start: {}, finish: {}, checkPacks: {}, changeLanguage: {}) {
+             direction: "英语 → 中文", start: {}, finish: {}, checkPacks: {}, changeLanguage: {},
+             faceToFace: {}) {
             CaptionListContent(rows: rows) {
                 Text(volatile).font(.title3).foregroundStyle(.secondary)
             }

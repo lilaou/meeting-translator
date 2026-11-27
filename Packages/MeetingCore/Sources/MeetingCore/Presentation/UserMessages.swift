@@ -1,11 +1,13 @@
 import Foundation
 
 /// The short, readable Chinese messages the UI shows for errors, shared by the session
-/// (`SessionCoordinator`) and the onboarding (`OnboardingModel`) so the wording stays the same.
+/// (`SessionCoordinator`), the onboarding (`OnboardingModel`) and the face-to-face language packs
+/// (`ConversationPacks`) so the wording stays the same.
 enum UserMessages {
     static let speechPack = "语音识别离线包"
     static let translationPack = "翻译离线包"
     static let selfTestFailedPrefix = "离线自检未通过："
+    static let recognitionTimedOut = "识别未能及时完成"
 
     /// The hint for an error of the session: readiness and audio errors have their own texts,
     /// anything else shows its `localizedDescription`.
@@ -35,6 +37,12 @@ enum UserMessages {
     /// The system cannot translate `locale`'s language into Chinese offline.
     static func translationUnsupported(_ locale: Locale) -> String {
         "系统不支持把\(CaptionStrings.languageName(of: locale))离线翻译成中文"
+    }
+
+    /// The system cannot translate `source`'s language into `target`'s offline (the
+    /// face-to-face screen, which translates both ways).
+    static func translationUnsupported(from source: Locale, to target: Locale) -> String {
+        "系统不支持把\(CaptionStrings.languageName(of: source))离线翻译成\(CaptionStrings.languageName(of: target))"
     }
 
     /// `installSpeechPack` failed; `ModelReadinessError` already reads well on its own.

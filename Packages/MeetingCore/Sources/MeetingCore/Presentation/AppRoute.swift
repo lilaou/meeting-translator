@@ -13,12 +13,16 @@ import Observation
         /// The caption page. A pack that went missing is reported there by
         /// `SessionCoordinator.start`'s own preflight.
         case captions
+        /// The face-to-face conversation, opened from the captions or the onboarding.
+        case faceToFace
     }
 
     public private(set) var page: Page = .launching
 
     @ObservationIgnored private let readiness: any ReadinessChecking
     @ObservationIgnored private var hasLaunched = false
+    /// Where `closeFaceToFace` returns to.
+    @ObservationIgnored private var pageBeforeFaceToFace: Page = .captions
 
     /// `readiness` is the instance the coordinator and the onboarding use.
     public init(readiness: any ReadinessChecking) { self.readiness = readiness }
@@ -49,4 +53,21 @@ import Observation
 
     /// The user asked to change the language or to check the packs.
     public func showOnboarding() { page = .onboarding }
+
+    /// The user asked for the face-to-face conversation. Remembers the page it was asked from;
+    /// ignored while launching and when already open. The caller offers it only while no
+    /// meeting runs.
+    public func showFaceToFace() {
+        switch page {
+        case .onboarding, .captions:
+            pageBeforeFaceToFace = page
+            page = .faceToFace
+        case .launching, .faceToFace: return
+        }
+    }
+
+    /// Back to the page `showFaceToFace` was called on; does nothing on any other page.
+    public func closeFaceToFace() {
+        if page == .faceToFace { page = pageBeforeFaceToFace }
+    }
 }
