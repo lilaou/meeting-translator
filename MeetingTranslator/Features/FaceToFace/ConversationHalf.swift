@@ -8,7 +8,7 @@ struct ConversationBoard: View {
     let liveText: String
     let utterances: [ConversationUtterance]
     let notice: ConversationSession.Notice?
-    /// The latest turn is shown but was not saved (`ConversationSession.saveFailed`).
+    /// The latest save failed (`ConversationSession.saveFailed`).
     let saveFailed: Bool
     let lastSpeaker: ConversationSide
     let tap: (ConversationSide) -> Void
