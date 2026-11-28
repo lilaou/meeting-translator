@@ -147,3 +147,31 @@ func faceToFaceReturnsToWhereItCameFrom(origin: AppRoute.Page) {
     await route.launch(locale: korean)
     #expect(route.page == .captions)
 }
+
+@MainActor @Test func historyOpensFromCaptionsAndReturnsThere() {
+    for origin in [AppRoute.Page.captions, .onboarding] {
+        let route = AppRoute(readiness: PreflightReadiness())
+        if origin == .captions { route.showCaptions() } else { route.showOnboarding() }
+        route.showHistory()
+        #expect(route.page == .history)
+        route.showHistory()      // a second tap must not make the page its own origin
+        route.showFaceToFace()   // not offered from the history
+        route.closeFaceToFace()
+        #expect(route.page == .history)
+        route.closeHistory()
+        #expect(route.page == origin)
+        route.closeHistory()     // nothing to close
+        #expect(route.page == origin)
+        route.showFaceToFace()
+        route.showHistory()      // nor the history from a conversation
+        #expect(route.page == .faceToFace)
+    }
+}
+
+@MainActor @Test func historyIsIgnoredWhileLaunching() async {
+    let route = AppRoute(readiness: PreflightReadiness())
+    route.showHistory()
+    #expect(route.page == .launching)
+    await route.launch(locale: korean)
+    #expect(route.page == .captions)
+}
