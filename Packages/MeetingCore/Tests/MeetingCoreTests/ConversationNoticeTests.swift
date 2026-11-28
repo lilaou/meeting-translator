@@ -20,3 +20,12 @@ private typealias Notice = ConversationSession.Notice
     #expect(Notice.notHeard.shown(on: .chinese, speaker: .chinese) == .notHeard)
     #expect(Notice.notHeard.shown(on: .chinese, speaker: .korean) == nil)
 }
+
+@Test(arguments: [ConversationSide.japanese, .english])
+func everyPartnerHalfIsTreatedLikeTheKoreanOne(partner: ConversationSide) {
+    #expect(Notice.failed("x").shown(on: partner, speaker: partner) == .failed)
+    #expect(Notice.failed("x").shown(on: partner, speaker: .chinese) == nil)
+    #expect(Notice.failed("x").shown(on: .chinese, speaker: partner) == .reason("对方这次出错了：x"))
+    #expect(Notice.notHeard.shown(on: partner, speaker: partner) == .notHeard)
+    #expect(Notice.notHeard.shown(on: partner, speaker: .chinese) == nil)
+}

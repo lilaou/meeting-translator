@@ -15,11 +15,12 @@ private let began = Date(timeIntervalSince1970: 1_700_000_000)
     let engine = ManualASREngine()
     let session: ConversationSession
 
-    init(translator: ConversationTranslator = ConversationTranslator()) throws {
+    init(partner: ConversationSide = .korean,
+         translator: ConversationTranslator = ConversationTranslator()) throws {
         container = try MeetingStorage.makeInMemoryContainer()
         store = TranscriptStore(container: container)
         var readings = 0
-        let recorder = ConversationRecorder(store: store, now: {
+        let recorder = ConversationRecorder(store: store, partner: partner, now: {
             defer { readings += 1 }
             return began.addingTimeInterval(Double(readings))
         })
@@ -64,6 +65,16 @@ struct ConversationRecorderTests {
         #expect(turns.map(\.date) == [0.0, 1].map { began.addingTimeInterval($0) })
         #expect(turns.allSatisfy { $0.conversation?.id == records.first?.id })
         #expect(!visit.session.saveFailed)
+    }
+
+    @MainActor @Test(arguments: [(ConversationSide.korean, "ko"), (.japanese, "ja"), (.english, "en")])
+    func theRecordNamesThePartnersLanguage(partner: ConversationSide, code: String) async throws {
+        let visit = try Visit(partner: partner)
+        await visit.say("你好", as: .chinese)
+        await visit.say("reply", as: partner)
+
+        #expect(try visit.records().map(\.languageCodes) == [["zh", code]])
+        #expect(try visit.turns().map(\.speakerCode) == ["chinese", partner.rawValue])
     }
 
     @MainActor @Test func visitWithoutTextStoresNothing() async throws {

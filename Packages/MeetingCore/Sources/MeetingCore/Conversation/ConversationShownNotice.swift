@@ -9,16 +9,16 @@ public enum ConversationShownNotice: Equatable, Sendable {
 }
 
 extension ConversationSession.Notice {
-    /// What the half of `side` shows when `speaker`'s turn ended with this notice. The Korean
-    /// half shows only Korean lines, and only for its own turn. Reasons exist only in Chinese,
-    /// so the Chinese half shows them for either side's turn.
+    /// What the half of `side` shows when `speaker`'s turn ended with this notice. The partner's
+    /// half shows only lines in its own language, and only for its own turn. Reasons exist only
+    /// in Chinese, so the Chinese half shows them for either side's turn.
     public func shown(on side: ConversationSide,
                       speaker: ConversationSide) -> ConversationShownNotice? {
         switch (self, side) {
         case (.notHeard, _): side == speaker ? .notHeard : nil
-        case (.failed, .korean): side == speaker ? .failed : nil
         case (.failed(let reason), .chinese):
             .reason(side == speaker ? reason : "对方这次出错了：" + reason)
+        case (.failed, _): side == speaker ? .failed : nil
         }
     }
 }

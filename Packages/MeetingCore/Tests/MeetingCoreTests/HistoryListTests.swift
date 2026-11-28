@@ -163,3 +163,23 @@ private let enUS = Locale(identifier: "en-US")
     let again = try TranscriptExport.writeFile(document, as: .text, in: dir)
     #expect(files.fileExists(atPath: again.path))
 }
+
+/// The header and the speaker labels follow the conversation's own languages.
+@MainActor @Test(arguments: [(ConversationSide.korean, "ko", "韩语"), (.japanese, "ja", "日语"),
+                             (.english, "en", "英语")])
+func historyNamesThePartnerLanguage(partner: ConversationSide, code: String, name: String) throws {
+    let container = try MeetingStorage.makeInMemoryContainer()
+    let store = TranscriptStore(container: container)
+    let id = try store.startConversation(languageCodes: ["zh", code], at: began)
+    for side in [ConversationSide.chinese, partner] {
+        _ = try store.appendTurn(speakerCode: side.rawValue, original: "x", translation: "y",
+                                 at: began, to: id)
+    }
+
+    let document = try #require(HistoryList.items(
+        meetings: [], conversations: try all(ConversationRecord.self, container),
+        timeZone: shanghai).first).document
+
+    #expect(document.metadata == ["语言：中文 ↔ \(name)"])
+    #expect(document.entries.map(\.label) == ["14:30:00 中文方", "14:30:00 \(name)方"])
+}

@@ -4,7 +4,7 @@ import Testing
 
 @MainActor @Test func allInstalledIsReady() async {
     let checking = ScriptedPacks()
-    let packs = ConversationPacks(checking: checking)
+    let packs = ConversationPacks(checking: checking, partner: .korean)
     #expect(packs.step == .checking)
     await packs.refresh()
     #expect(packs.step == .ready)
@@ -14,20 +14,20 @@ import Testing
 }
 
 @MainActor @Test func missingPacksAreListedInOrder() async {
-    let all = ConversationPacks(checking: ScriptedPacks.empty())
+    let all = ConversationPacks(checking: ScriptedPacks.empty(), partner: .korean)
     await all.refresh()
     #expect(all.step == .missing(allPacks))
 
     let some = ConversationPacks(checking: ScriptedPacks([
         .translation(from: .korean): .notInstalled, .speech(.korean): .notInstalled,
-    ]))
+    ]), partner: .korean)
     await some.refresh()
     #expect(some.step == .missing([.speech(.korean), .translation(from: .korean)]))
 }
 
 @MainActor @Test func downloadInstallsSpeechThenAsksForEachTranslationPair() async {
     let checking = ScriptedPacks.empty()
-    let packs = ConversationPacks(checking: checking)
+    let packs = ConversationPacks(checking: checking, partner: .korean)
     await packs.refresh()
     await packs.download()
     #expect(checking.installed == ["zh-CN", "ko-KR"])
@@ -46,7 +46,7 @@ import Testing
 @MainActor @Test func theInstallingStepNamesThePack() async {
     let gate = Gate()
     let checking = ScriptedPacks([.speech(.korean): .notInstalled], installGate: gate)
-    let packs = ConversationPacks(checking: checking)
+    let packs = ConversationPacks(checking: checking, partner: .korean)
     await packs.refresh()
     let download = Task { await packs.download() }
     await checking.installEntered.wait()
@@ -61,17 +61,19 @@ import Testing
 }
 
 @MainActor @Test func anUnsupportedPackFails() async {
-    let speech = ConversationPacks(checking: ScriptedPacks([.speech(.korean): .unsupported]))
+    let speech = ConversationPacks(checking: ScriptedPacks([.speech(.korean): .unsupported]),
+                                   partner: .korean)
     await speech.refresh()
     #expect(speech.step == .failed("系统不支持韩语的离线语音识别"))
 
     let translation = ConversationPacks(checking: ScriptedPacks([
         .speech(.chinese): .notInstalled, .translation(from: .chinese): .unsupported,
-    ]))
+    ]), partner: .korean)
     await translation.refresh()
     #expect(translation.step == .failed("系统不支持把中文离线翻译成韩语"))
 
-    let reverse = ConversationPacks(checking: ScriptedPacks([.translation(from: .korean): .unsupported]))
+    let reverse = ConversationPacks(
+        checking: ScriptedPacks([.translation(from: .korean): .unsupported]), partner: .korean)
     await reverse.refresh()
     #expect(reverse.step == .failed("系统不支持把韩语离线翻译成中文"))
 }
@@ -80,7 +82,7 @@ import Testing
     let error = ModelReadinessError.speechInstallFailed("名额已满")
     let checking = ScriptedPacks([.speech(.chinese): .notInstalled, .speech(.korean): .notInstalled],
                                  installError: error)
-    let packs = ConversationPacks(checking: checking)
+    let packs = ConversationPacks(checking: checking, partner: .korean)
     await packs.refresh()
     await packs.download()
     #expect(packs.step == .failed("语音识别模型安装失败：名额已满"))
@@ -92,7 +94,7 @@ import Testing
 
 @MainActor @Test func aCancelledTranslationDownloadReturnsToMissing() async {
     let checking = ScriptedPacks.empty()
-    let packs = ConversationPacks(checking: checking)
+    let packs = ConversationPacks(checking: checking, partner: .korean)
     await packs.refresh()
     await packs.download()
     let still = ConversationPacks.Step.missing([.translation(from: .chinese), .translation(from: .korean)])
@@ -109,7 +111,7 @@ import Testing
 
 @MainActor @Test func reportsOutsideAwaitingAreIgnored() async {
     let checking = ScriptedPacks.empty()
-    let packs = ConversationPacks(checking: checking)
+    let packs = ConversationPacks(checking: checking, partner: .korean)
     await packs.download()
     await packs.translationDownloadFinished(error: nil)
     packs.cancel()
@@ -136,7 +138,8 @@ import Testing
 }
 
 @MainActor @Test func aDownloadThatDidNotInstallThePackFails() async {
-    let translation = ConversationPacks(checking: ScriptedPacks([.translation(from: .korean): .notInstalled]))
+    let translation = ConversationPacks(
+        checking: ScriptedPacks([.translation(from: .korean): .notInstalled]), partner: .korean)
     await translation.refresh()
     await translation.download()
     #expect(translation.step == .awaitingTranslationDownload(from: .korean))
@@ -144,16 +147,49 @@ import Testing
     #expect(translation.step == .failed("翻译离线包仍未就绪，请重试"))
 
     let speech = ConversationPacks(checking: ScriptedPacks([.speech(.chinese): .notInstalled],
-                                                           installDoesNothing: true))
+                                                           installDoesNothing: true),
+                                   partner: .korean)
     await speech.refresh()
     await speech.download()
     #expect(speech.step == .failed("语音识别离线包仍未就绪，请重试"))
 }
 
 @MainActor @Test func aFailedTranslationDownloadFailsWithItsReason() async {
-    let packs = ConversationPacks(checking: ScriptedPacks([.translation(from: .chinese): .notInstalled]))
+    let packs = ConversationPacks(
+        checking: ScriptedPacks([.translation(from: .chinese): .notInstalled]), partner: .korean)
     await packs.refresh()
     await packs.download()
     await packs.translationDownloadFinished(error: FakeError.translation)
     #expect(packs.step == .failed(UserMessages.translationDownloadFailed(FakeError.translation)))
+}
+
+@MainActor @Test func aPartnersPacksAreCheckedAndFetched() async {
+    let checking = ScriptedPacks.empty(partner: .japanese)
+    let packs = ConversationPacks(checking: checking, partner: .japanese)
+    #expect(packs.partner == .japanese)
+    #expect(packs.all == packList(.japanese))
+    #expect(packs.target(from: .chinese) == .japanese)
+    #expect(packs.target(from: .japanese) == .chinese)
+
+    await packs.refresh()
+    #expect(packs.step == .missing([.speech(.chinese), .speech(.japanese),
+                                    .translation(from: .chinese), .translation(from: .japanese)]))
+    let chinese = Locale.Language(identifier: "zh-Hans"), japanese = Locale.Language(identifier: "ja")
+    #expect(checking.translationPairs == [[chinese, japanese], [japanese, chinese]])
+
+    await packs.download()
+    #expect(checking.installed == ["zh-CN", "ja-JP"])
+    #expect(packs.step == .awaitingTranslationDownload(from: .chinese))
+    #expect(checking.translationPairs.allSatisfy {
+        $0 == [chinese, japanese] || $0 == [japanese, chinese]
+    })
+}
+
+@MainActor @Test(arguments: [(ConversationSide.japanese, "日语"), (.english, "英语")])
+func anUnsupportedPartnerPackNamesTheLanguage(partner: ConversationSide, name: String) async {
+    let packs = ConversationPacks(
+        checking: ScriptedPacks([.translation(from: partner): .unsupported], partner: partner),
+        partner: partner)
+    await packs.refresh()
+    #expect(packs.step == .failed("系统不支持把\(name)离线翻译成中文"))
 }

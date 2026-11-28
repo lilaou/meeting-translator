@@ -7,23 +7,29 @@ import Foundation
     func save(speaker: ConversationSide, original: String, translation: String?) throws
 }
 
-/// Saves one visit to the face-to-face screen as one conversation record: build one per visit.
+/// Saves one visit to the face-to-face screen, with one partner language, as one conversation
+/// record: build one per visit.
 /// The record is created with the first turn, so a visit without any leaves nothing.
 @MainActor public final class ConversationRecorder: ConversationSaving {
     private let store: TranscriptStore
+    private let partner: ConversationSide
     private let now: () -> Date
     /// Set only once the record is in the store, so a failed creation is tried again with the
     /// next turn.
     private var conversationID: UUID?
 
-    public init(store: TranscriptStore, now: @escaping () -> Date = { Date() }) {
+    public init(store: TranscriptStore, partner: ConversationSide,
+                now: @escaping () -> Date = { Date() }) {
         self.store = store
+        self.partner = partner
         self.now = now
     }
 
     public func save(speaker: ConversationSide, original: String, translation: String?) throws {
         let date = now()
-        let id = try conversationID ?? store.startConversation(languageCodes: ["zh", "ko"], at: date)
+        let languages = [ConversationSide.chinese, partner].map(\.translationLanguage)
+        let codes = languages.compactMap { $0.languageCode?.identifier }
+        let id = try conversationID ?? store.startConversation(languageCodes: codes, at: date)
         conversationID = id
         _ = try store.appendTurn(speakerCode: speaker.rawValue, original: original,
                                  translation: translation, at: date, to: id)

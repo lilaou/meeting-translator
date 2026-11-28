@@ -9,7 +9,7 @@ private let stillBoth = ConversationPacks.Step.missing([.speech(.chinese), .spee
 
 @MainActor @Test func cancelDuringAnInstallReturnsToMissing() async {
     let checking = ScriptedPacks(bothSpeech, installGate: Gate())
-    let packs = ConversationPacks(checking: checking)
+    let packs = ConversationPacks(checking: checking, partner: .korean)
     await packs.refresh()
     let download = Task { await packs.download() }
     await checking.installEntered.wait()
@@ -26,7 +26,7 @@ private let stillBoth = ConversationPacks.Step.missing([.speech(.chinese), .spee
     let checking = ScriptedPacks(bothSpeech, installGate: Gate())
     weak var released: ConversationPacks?
     do {
-        let packs = ConversationPacks(checking: checking)
+        let packs = ConversationPacks(checking: checking, partner: .korean)
         released = packs
         await packs.refresh()
         let caller = Task { await packs.download() }
@@ -42,7 +42,7 @@ private let stillBoth = ConversationPacks.Step.missing([.speech(.chinese), .spee
 @MainActor @Test func aNewDownloadWaitsForAnInstallThatIgnoresCancellation() async {
     let gate = Gate()
     let checking = ScriptedPacks(bothSpeech, installGate: gate, honorsCancellation: false)
-    let packs = ConversationPacks(checking: checking)
+    let packs = ConversationPacks(checking: checking, partner: .korean)
     await packs.refresh()
     let first = Task { await packs.download() }
     await checking.installEntered.wait()

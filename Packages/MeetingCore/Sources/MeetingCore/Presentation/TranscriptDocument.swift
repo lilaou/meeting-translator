@@ -44,11 +44,7 @@ public struct TranscriptDocument: Hashable, Sendable {
         metadata = ["语言：\(languages.joined(separator: " ↔ "))"]
         entries = conversation.turns.sorted { $0.index < $1.index }.map { turn in
             let time = TranscriptTime(turn.date, in: timeZone)
-            let speaker: String? = switch ConversationSide(rawValue: turn.speakerCode) {
-            case .chinese: "中文方"
-            case .korean: "韩语方"
-            case nil: nil
-            }
+            let speaker = ConversationSide(rawValue: turn.speakerCode).map { $0.chineseName + "方" }
             return Entry(label: [time.clock, speaker].compactMap { $0 }.joined(separator: " "),
                          original: turn.original,
                          translation: turn.translation.map(Self.shown)

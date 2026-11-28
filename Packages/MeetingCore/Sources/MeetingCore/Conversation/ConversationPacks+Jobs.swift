@@ -58,13 +58,13 @@ extension ConversationPacks {
     /// cancelled meanwhile.
     private func query() async -> Bool {
         var states: [ConversationPack: PackState] = [:]
-        for pack in ConversationPack.all {
+        for pack in all {
             switch pack {
             case .speech(let side):
                 states[pack] = await checking.conversationSpeechState(for: side.speechLocale)
             case .translation(let side):
                 states[pack] = await checking.translationState(from: side.translationLanguage,
-                                                               to: side.other.translationLanguage)
+                                                               to: target(from: side).translationLanguage)
             }
             guard !Task.isCancelled else { return false }
         }
@@ -76,10 +76,10 @@ extension ConversationPacks {
     /// when none are known.
     var settled: Step {
         guard let known else { return .checking }
-        if let pack = ConversationPack.all.first(where: { known[$0] == .unsupported }) {
+        if let pack = all.first(where: { known[$0] == .unsupported }) {
             return .failed(unsupported(pack))
         }
-        let missing = ConversationPack.all.filter { known[$0] != .installed }
+        let missing = all.filter { known[$0] != .installed }
         return missing.isEmpty ? .ready : .missing(missing)
     }
 
@@ -88,7 +88,8 @@ extension ConversationPacks {
         case .speech(let side):
             UserMessages.speechUnsupported(side.speechLocale)
         case .translation(let side):
-            UserMessages.translationUnsupported(from: side.speechLocale, to: side.other.speechLocale)
+            UserMessages.translationUnsupported(from: side.speechLocale,
+                                                to: target(from: side).speechLocale)
         }
     }
 
