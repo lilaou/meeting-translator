@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-/// 会议记录存储。每个写方法立即 save，已定稿句子不会因崩溃丢失。
+/// 会议与面对面对话的记录存储。每个写方法立即 save，已定稿句子不会因崩溃丢失。
 ///
 /// The store reads and writes through `container.mainContext`, the context SwiftUI `@Query`
 /// reads, so the UI sees every write at once without cross-context merging. The `@Model`
@@ -17,11 +17,12 @@ import SwiftData
 /// before it returns, all within one main-actor call, so autosave never sees a write's
 /// changes pending and can neither persist a failed write nor be needed for a good one.
 ///
-/// The container should come from `MeetingStorage`, which pins the schema (`SchemaV1`).
+/// The container should come from `MeetingStorage`, which pins the schema (`SchemaV2`).
 @MainActor public final class TranscriptStore {
     public enum StoreError: Error, Equatable {
         case meetingNotFound(UUID)
         case segmentNotFound(UUID)
+        case conversationNotFound(UUID)
     }
 
     /// Kept so the container outlives the store: unlike `ModelContext(container)`, its
@@ -90,6 +91,51 @@ import SwiftData
         try fetchMeeting(meetingID).segments.sorted { $0.index < $1.index }
     }
 
+    public func startConversation(languageCodes: [String], at date: Date) throws -> UUID {
+        let conversation = ConversationRecord(startedAt: date, languageCodes: languageCodes)
+        context.insert(conversation)
+        try save()
+        return conversation.id
+    }
+
+    public func appendTurn(speakerCode: String, original: String, translation: String?,
+                           at date: Date, to conversationID: UUID) throws -> UUID {
+        let conversation = try fetchConversation(conversationID)
+        let next = (conversation.turns.map(\.index).max() ?? -1) + 1
+        let turn = ConversationTurnRecord(index: next, speakerCode: speakerCode,
+                                          original: original, translation: translation, date: date)
+        turn.conversation = conversation
+        context.insert(turn)
+        try save()
+        return turn.id
+    }
+
+    public func turns(of conversationID: UUID) throws -> [ConversationTurnRecord] {
+        try fetchConversation(conversationID).turns.sorted { $0.index < $1.index }
+    }
+
+    /// Also deletes the meeting's segments.
+    public func deleteMeeting(_ id: UUID) throws {
+        try delete(try fetchMeeting(id))
+    }
+
+    /// Also deletes the conversation's turns.
+    public func deleteConversation(_ id: UUID) throws {
+        try delete(try fetchConversation(id))
+    }
+
+    private func delete<Record: PersistentModel>(_ record: Record) throws {
+        context.delete(record)
+        do {
+            try save()
+        } catch {
+            // When `save()` itself failed, the first fetch after the rollback still leaves
+            // the record out (seen on macOS 15). Take that fetch here, not in the UI.
+            _ = try? context.fetch(FetchDescriptor<Record>())
+            throw error
+        }
+    }
+
     /// Every write saves at once, so the only pending changes are the current write's. On a
     /// failure they are rolled back: a retry must not find (and later persist) a half-written
     /// copy, and one bad object must not make every later save fail. The rollback is on the
@@ -103,6 +149,8 @@ import SwiftData
             }
             try context.save()
         } catch {
+            // `rollback()` traps on a delete that is still unprocessed (seen on macOS 15).
+            context.processPendingChanges()
             context.rollback()
             throw error
         }
@@ -122,6 +170,14 @@ import SwiftData
             throw StoreError.segmentNotFound(id)
         }
         return segment
+    }
+
+    private func fetchConversation(_ id: UUID) throws -> ConversationRecord {
+        let predicate = #Predicate<ConversationRecord> { $0.id == id }
+        guard let conversation = try context.fetch(FetchDescriptor(predicate: predicate)).first else {
+            throw StoreError.conversationNotFound(id)
+        }
+        return conversation
     }
 
     private static func defaultTitle(for date: Date) -> String {
