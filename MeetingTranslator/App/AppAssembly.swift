@@ -18,15 +18,22 @@ struct AppEnvironment {
     let faceToFace: FaceToFaceSetup
 }
 
-/// What the face-to-face screen is made of. The translators (one per direction) and the shared
-/// engine and readiness live as long as the app; `makeVisit` builds the rest for one visit.
+/// What the face-to-face screen is made of. The translators (one into Chinese, one per partner
+/// language out of Chinese) and the shared engine and readiness live as long as the app;
+/// `makeModel` builds the screen's model, which makes a visit per partner language.
 @MainActor
 struct FaceToFaceSetup {
+    /// The `UserDefaults` key of the chosen partner language; only its raw value is stored.
+    private static let partnerKey = "partnerLanguage"
+
     let engine: AppleSpeechEngine
     let readiness: ModelReadiness
     let store: TranscriptStore
-    private let fromChinese = AppleTranslator(target: ConversationSide.chinese.other.translationLanguage)
-    private let fromKorean = AppleTranslator(target: ConversationSide.korean.other.translationLanguage)
+    private let toChinese = AppleTranslator(target: ConversationSide.chinese.translationLanguage)
+    private let fromChinese: [ConversationSide: AppleTranslator] = Dictionary(
+        uniqueKeysWithValues: ConversationSide.partners.map {
+            ($0, AppleTranslator(target: $0.translationLanguage))
+        })
 
     init(engine: AppleSpeechEngine, readiness: ModelReadiness, store: TranscriptStore) {
         self.engine = engine
@@ -34,22 +41,29 @@ struct FaceToFaceSetup {
         self.store = store
     }
 
+    /// The model of one stay on the screen, starting with the remembered partner language.
+    func makeModel() -> FaceToFaceModel {
+        FaceToFaceModel(
+            storedPartner: UserDefaults.standard.string(forKey: Self.partnerKey),
+            save: { UserDefaults.standard.set($0, forKey: Self.partnerKey) },
+            makeVisit: { makeVisit(partner: $0) })
+    }
+
     /// A new conversation and a new pack check. The `AudioCapture` is the conversation's own,
     /// not the meeting's, and new per visit: a stop still pending from a closed visit then
     /// cannot end the recording of a later one. The recorder is new per visit too, so each
     /// visit is saved as a conversation of its own.
-    func makeVisit() -> FaceToFaceVisit {
+    private func makeVisit(partner: ConversationSide) -> ConversationVisit {
+        // The model only asks for partner languages, all of which are in the table.
+        let toPartner = fromChinese[partner]
+            ?? AppleTranslator(target: partner.translationLanguage)
         let session = ConversationSession(
             engine: engine, audio: AudioCapture(),
-            translator: { [fromChinese, fromKorean] side in
-                switch side {
-                case .chinese: fromChinese
-                case .korean: fromKorean
-                }
-            },
+            translator: { [toChinese] side in side == .chinese ? toPartner : toChinese },
             timing: ConversationTiming(),
-            saver: ConversationRecorder(store: store))
-        return FaceToFaceVisit(session: session, packs: ConversationPacks(checking: readiness))
+            saver: ConversationRecorder(store: store, partner: partner))
+        return ConversationVisit(partner: partner, session: session,
+                                 packs: ConversationPacks(checking: readiness, partner: partner))
     }
 }
 

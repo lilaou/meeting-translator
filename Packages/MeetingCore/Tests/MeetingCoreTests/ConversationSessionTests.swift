@@ -74,6 +74,14 @@ struct ConversationSessionTests {
         #expect(ConversationText.join([]) == "")
     }
 
+    @Test func japanesePiecesJoinWithoutSpaces() {
+        #expect(ConversationText.join(["まっすぐ", "行って", "ください"]) == "まっすぐ行ってください")
+        // No space between Latin or digits and Japanese; one between two Latin or digit pieces.
+        #expect(ConversationText.join(["iPhone", "の充電器は", "2", "つあります"])
+            == "iPhoneの充電器は2つあります")
+        #expect(ConversationText.join(["JR", "2", "番線です"]) == "JR 2番線です")
+    }
+
     @MainActor @Test func aFailedTranslationKeepsTheOriginal() async {
         let engine = ManualASREngine()
         let s = makeConversation(engine: engine, translator: ConversationTranslator(failing: true))

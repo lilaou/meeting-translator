@@ -2,14 +2,19 @@ import MeetingCore
 import SwiftUI
 
 /// Shown until the four language packs are there: what is missing, and "下载" / "取消" / "重试".
+/// The partner language can be changed here too, e.g. away from one that is unsupported.
 /// The close button works in every step, also while an install never returns.
 struct ConversationPacksView: View {
     let packs: ConversationPacks
+    let picker: PartnerPicker
+    /// Whether `packs` still belongs to the current visit.
+    let isCurrent: @MainActor () -> Bool
     let close: () -> Void
 
     var body: some View {
         VStack(spacing: 20) {
-            Text("面对面翻译（中文 ↔ 韩语）").font(.headline)
+            Text("面对面翻译（中文 ↔ \(packs.partner.chineseName)）").font(.headline)
+            picker
             Spacer()
             step
             Spacer()
@@ -27,22 +32,31 @@ struct ConversationPacksView: View {
             Text("正在检查语言包…")
         case .missing(let missing):
             Text("还缺少以下语言包：")
-            ForEach(missing, id: \.self) { Text(Self.name(of: $0)).foregroundStyle(.secondary) }
-            Button("下载") { Task { await packs.download() } }
+            ForEach(missing, id: \.self) { Text(name(of: $0)).foregroundStyle(.secondary) }
+            Button("下载") { start { await packs.download() } }
                 .buttonStyle(.borderedProminent)
                 .disabled(packs.isBusy)
         case .installing(let pack):
-            progress("正在安装\(Self.name(of: pack))…")
+            progress("正在安装\(name(of: pack))…")
         case .awaitingTranslationDownload(let side):
-            progress("正在下载\(Self.name(of: .translation(from: side)))…")
+            progress("正在下载\(name(of: .translation(from: side)))…")
         case .ready:
             // The page shows the conversation instead.
             EmptyView()
         case .failed(let message):
             Text(message)
-            Button("重试") { Task { await packs.refresh() } }
+            Button("重试") { start { await packs.refresh() } }
                 .buttonStyle(.borderedProminent)
                 .disabled(packs.isBusy)
+        }
+    }
+
+    private func start(_ job: @escaping @MainActor () async -> Void) {
+        Task {
+            // The language may have changed before this task ran: the tap was for the old packs,
+            // and a closed visit's packs would still install.
+            guard isCurrent() else { return }
+            await job()
         }
     }
 
@@ -52,12 +66,11 @@ struct ConversationPacksView: View {
         Button("取消") { packs.cancel() }
     }
 
-    private static func name(of pack: ConversationPack) -> String {
+    private func name(of pack: ConversationPack) -> String {
         switch pack {
-        case .speech(.chinese): "中文识别包"
-        case .speech(.korean): "韩语识别包"
-        case .translation(.chinese): "中文 → 韩语翻译包"
-        case .translation(.korean): "韩语 → 中文翻译包"
+        case .speech(let side): "\(side.chineseName)识别包"
+        case .translation(let side):
+            "\(side.chineseName) → \(packs.target(from: side).chineseName)翻译包"
         }
     }
 }
@@ -72,7 +85,10 @@ private struct NothingInstalled: ConversationPackChecking {
 }
 
 #Preview("missing packs") {
-    @Previewable @State var packs = ConversationPacks(checking: NothingInstalled())
-    ConversationPacksView(packs: packs, close: {})
+    @Previewable @State var packs = ConversationPacks(checking: NothingInstalled(),
+                                                      partner: .korean)
+    ConversationPacksView(
+        packs: packs, picker: PartnerPicker(partner: .korean, canChoose: true, choose: { _ in }),
+        isCurrent: { true }, close: {})
         .task { await packs.refresh() }
 }

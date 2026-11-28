@@ -54,7 +54,7 @@ private final class UnreservedPacks: ConversationPackChecking, Sendable {
 
 @MainActor @Test func downloadingReservesTheInstalledModelsAndEndsReady() async {
     let checking = UnreservedPacks()
-    let packs = ConversationPacks(checking: checking)
+    let packs = ConversationPacks(checking: checking, partner: .korean)
     await packs.refresh()
     #expect(packs.step == .missing([.speech(.chinese), .speech(.korean)]))
     await packs.download()

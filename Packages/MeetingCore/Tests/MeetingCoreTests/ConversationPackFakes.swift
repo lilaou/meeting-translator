@@ -2,13 +2,16 @@ import Foundation
 import Synchronization
 @testable import MeetingCore
 
-/// The four packs, in the order the model lists them.
-let allPacks: [ConversationPack] = [.speech(.chinese), .speech(.korean),
-                                    .translation(from: .chinese), .translation(from: .korean)]
+/// The four packs with `partner`, in the order the model lists them.
+func packList(_ partner: ConversationSide) -> [ConversationPack] {
+    [.speech(.chinese), .speech(partner), .translation(from: .chinese), .translation(from: partner)]
+}
 
-/// Scripted `ConversationPackChecking`. A pack is recognized only by the exact locale or pair
-/// of its side; any other query reports `.unsupported`. A successful install makes the speech
-/// pack `.installed` (unless `installDoesNothing`).
+let allPacks = packList(.korean)
+
+/// Scripted `ConversationPackChecking` for Chinese and one `partner`. A pack is recognized only
+/// by the exact locale or pair of its side; any other query reports `.unsupported`. A successful
+/// install makes the speech pack `.installed` (unless `installDoesNothing`).
 ///
 /// With `installGate`, installs wait for it; `installEntered` opens when one starts. With
 /// `honorsCancellation` a cancelled install stops waiting and throws `CancellationError`.
@@ -17,10 +20,13 @@ final class ScriptedPacks: ConversationPackChecking, Sendable {
         var packs: [ConversationPack: PackState]
         var installed: [String] = []
         var queries = 0
+        var pairs: [[Locale.Language]] = []
         var inFlight = 0
         var maxInFlight = 0
     }
     private let state: Mutex<State>
+    private let partner: ConversationSide
+    private var sides: [ConversationSide] { [.chinese, partner] }
     private let installError: (any Error)?
     private let installDoesNothing: Bool
     private let honorsCancellation: Bool
@@ -28,11 +34,13 @@ final class ScriptedPacks: ConversationPackChecking, Sendable {
     let installEntered = Gate()
 
     /// Every pack not named in `states` is `.installed`.
-    init(_ states: [ConversationPack: PackState] = [:], installError: (any Error)? = nil,
+    init(_ states: [ConversationPack: PackState] = [:], partner: ConversationSide = .korean,
+         installError: (any Error)? = nil,
          installDoesNothing: Bool = false, installGate: Gate? = nil, honorsCancellation: Bool = true) {
-        var packs = Dictionary(uniqueKeysWithValues: allPacks.map { ($0, PackState.installed) })
+        var packs = Dictionary(uniqueKeysWithValues: packList(partner).map { ($0, PackState.installed) })
         packs.merge(states) { _, new in new }
         state = Mutex(State(packs: packs))
+        self.partner = partner
         self.installError = installError
         self.installDoesNothing = installDoesNothing
         self.installGate = installGate
@@ -40,25 +48,31 @@ final class ScriptedPacks: ConversationPackChecking, Sendable {
     }
 
     /// Every pack missing.
-    static func empty(installGate: Gate? = nil, honorsCancellation: Bool = true) -> ScriptedPacks {
-        ScriptedPacks(Dictionary(uniqueKeysWithValues: allPacks.map { ($0, .notInstalled) }),
-                      installGate: installGate, honorsCancellation: honorsCancellation)
+    static func empty(partner: ConversationSide = .korean, installGate: Gate? = nil,
+                      honorsCancellation: Bool = true) -> ScriptedPacks {
+        ScriptedPacks(Dictionary(uniqueKeysWithValues: packList(partner).map { ($0, .notInstalled) }),
+                      partner: partner, installGate: installGate,
+                      honorsCancellation: honorsCancellation)
     }
 
     /// The locale identifiers of every install, in order.
     var installed: [String] { state.withLock { $0.installed } }
     var queries: Int { state.withLock { $0.queries } }
+    /// The [from, to] of every translation query, in order.
+    var translationPairs: [[Locale.Language]] { state.withLock { $0.pairs } }
     var maxInstallsInFlight: Int { state.withLock { $0.maxInFlight } }
     /// Plays the view (or the system) changing a pack.
     func set(_ pack: ConversationPack, _ value: PackState) { state.withLock { $0.packs[pack] = value } }
 
     func conversationSpeechState(for locale: Locale) async -> PackState {
-        report(ConversationSide.allCases.first { $0.speechLocale == locale }.map { .speech($0) })
+        report(sides.first { $0.speechLocale == locale }.map { .speech($0) })
     }
 
     func translationState(from: Locale.Language, to: Locale.Language) async -> PackState {
-        let side = ConversationSide.allCases.first {
-            $0.translationLanguage == from && $0.other.translationLanguage == to
+        state.withLock { $0.pairs.append([from, to]) }
+        let side = sides.first {
+            $0.translationLanguage == from
+                && $0.counterpart(partner: partner).translationLanguage == to
         }
         return report(side.map { .translation(from: $0) })
     }
@@ -88,7 +102,7 @@ final class ScriptedPacks: ConversationPackChecking, Sendable {
         }
         if let installError { throw installError }
         guard !installDoesNothing,
-              let side = ConversationSide.allCases.first(where: { $0.speechLocale == locale }) else { return }
+              let side = sides.first(where: { $0.speechLocale == locale }) else { return }
         set(.speech(side), .installed)
     }
 }

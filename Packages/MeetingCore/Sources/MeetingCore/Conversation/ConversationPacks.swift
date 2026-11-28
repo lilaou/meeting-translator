@@ -15,23 +15,21 @@ public protocol ConversationPackChecking: Sendable {
 public enum ConversationPack: Equatable, Hashable, Sendable {
     /// Speech recognition of `side.speechLocale`.
     case speech(ConversationSide)
-    /// Translation from `from.translationLanguage` to `from.other.translationLanguage`.
+    /// Translation from `from.translationLanguage` into its counterpart's
+    /// (`ConversationPacks.target(from:)`).
     case translation(from: ConversationSide)
-
-    /// All four, in the order they are listed and fetched.
-    static let all: [ConversationPack] = ConversationSide.allCases.map { .speech($0) }
-        + ConversationSide.allCases.map { .translation(from: $0) }
 }
 
-/// Checks and fetches the four language packs of the face-to-face screen: installs the speech
-/// packs itself, then hands each missing translation pack download to the view. It owns no UI.
+/// Checks and fetches the four language packs of a face-to-face conversation between Chinese
+/// and `partner`: installs the speech packs itself, then hands each missing translation pack
+/// download to the view. It owns no UI.
 ///
 /// What the view must do:
 /// - Call `refresh()` when the screen appears (the initial `.checking` is idle), and again
 ///   after a `cancel()` that left `.checking`. It also starts over from `.failed`.
 /// - On `.awaitingTranslationDownload(from: side)`, download the pack from exactly
-///   `side.translationLanguage` to `side.other.translationLanguage` with `.translationTask` +
-///   `prepareTranslation()`, then report EXACTLY ONCE through
+///   `side.translationLanguage` to `target(from: side).translationLanguage` with
+///   `.translationTask` + `prepareTranslation()`, then report EXACTLY ONCE through
 ///   `translationDownloadFinished(error:)`, from an unstructured `Task`: SwiftUI cancels the
 ///   `.translationTask` action's task, which would cancel the follow-up job. A second
 ///   `.awaitingTranslationDownload` (the other direction) needs a new configuration.
@@ -72,15 +70,31 @@ public enum ConversationPack: Equatable, Hashable, Sendable {
     /// Calls waiting for a cancelled job to end (observable, for tests).
     private(set) var callsWaitingForCancelledJob = 0
 
-    public init(checking: any ConversationPackChecking) {
+    /// The other side's language; it never changes.
+    public let partner: ConversationSide
+
+    /// `partner` must be one of `ConversationSide.partners`.
+    public init(checking: any ConversationPackChecking, partner: ConversationSide) {
+        precondition(ConversationSide.partners.contains(partner))
         self.checking = checking
+        self.partner = partner
+    }
+
+    /// All four packs, in the order they are listed and fetched.
+    public var all: [ConversationPack] {
+        [.speech(.chinese), .speech(partner), .translation(from: .chinese), .translation(from: partner)]
+    }
+
+    /// The side that what `side` says is translated for.
+    public func target(from side: ConversationSide) -> ConversationSide {
+        side.counterpart(partner: partner)
     }
 
     /// Queries all four packs: any unsupported → `.failed`; all installed → `.ready`; else
     /// `.missing`. Ignored during `.awaitingTranslationDownload`.
     public func refresh() async { await run(.check) }
 
-    /// From `.missing` only: installs the missing speech packs (Chinese, then Korean), then
+    /// From `.missing` only: installs the missing speech packs (Chinese, then the partner's), then
     /// asks the view for the first missing translation pack.
     public func download() async { await run(.download) }
 
