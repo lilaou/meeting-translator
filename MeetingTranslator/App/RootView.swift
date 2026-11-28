@@ -30,8 +30,8 @@ struct RootView: View {
                             onShowFaceToFace: { route.showFaceToFace() },
                             onShowHistory: { route.showHistory() })
         case .faceToFace:
-            // This branch is one visit: the page's state lives exactly as long as it.
-            FaceToFacePage(makeVisit: faceToFace.makeVisit,
+            // The page's state, its model included, lives exactly as long as this branch.
+            FaceToFacePage(makeModel: faceToFace.makeModel,
                            onClose: { route.closeFaceToFace() })
         case .history:
             HistoryPage(delete: { [store] in

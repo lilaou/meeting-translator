@@ -15,7 +15,8 @@ private final class ConversationDownloadAttempt {
     init(packs: ConversationPacks, from side: ConversationSide) {
         self.packs = packs
         configuration = TranslationSession.Configuration(
-            source: side.translationLanguage, target: side.other.translationLanguage)
+            source: side.translationLanguage,
+            target: packs.target(from: side).translationLanguage)
     }
 
     /// The step moved on: a late report of this attempt (its task is being cancelled) must not
