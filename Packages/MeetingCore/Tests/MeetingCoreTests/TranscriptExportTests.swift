@@ -170,12 +170,15 @@ private let sample: [Line] = [
             ("Waiting.", nil, 0, .pendingTranslation),
             ("Broken.", nil, 1, .translationFailed),
             ("Lost.", nil, 2, .translated),
+            ("Empty.", "", 3, .translated),
         ]), timeZone: shanghai)
-    #expect(meetingDocument.entries.map(\.translation) == ["（未翻译）", "（翻译失败）", "（未翻译）"])
+    #expect(meetingDocument.entries.map(\.translation)
+        == ["（未翻译）", "（翻译失败）", "（未翻译）", "（未翻译）"])
     let conversationDocument = TranscriptDocument(
-        conversation: try conversation(in: container, [(.chinese, "你好。", nil, 0)]),
-        timeZone: shanghai)
-    #expect(conversationDocument.entries.map(\.translation) == ["（翻译失败）"])
+        conversation: try conversation(in: container, [
+            (.chinese, "你好。", nil, 0), (.chinese, "再见。", "", 1),
+        ]), timeZone: shanghai)
+    #expect(conversationDocument.entries.map(\.translation) == ["（翻译失败）", "（未翻译）"])
 }
 
 @MainActor @Test func fileNamesCarryKindAndTime() throws {
@@ -209,4 +212,7 @@ private let sample: [Line] = [
     #expect(try preview([]) == "")
     let failed = try conversation(in: container, [(.chinese, "你好。", nil, 0)])
     #expect(TranscriptDocument(conversation: failed, timeZone: shanghai).preview == "你好。")
+    #expect(try preview([("One.", "", 0, .translated)]) == "One.")
+    let dropped = try conversation(in: container, [(.chinese, "走了。", "", 0)])
+    #expect(TranscriptDocument(conversation: dropped, timeZone: shanghai).preview == "走了。")
 }

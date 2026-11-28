@@ -83,7 +83,7 @@ struct ConversationRecorderTests {
         #expect(!visit.session.saveFailed)
     }
 
-    @MainActor @Test func discardedTurnIsNotStored() async throws {
+    @MainActor @Test func droppedTurnWithTextIsStoredUntranslated() async throws {
         let gate = Gate()
         let translator = ConversationTranslator(gate: gate)
         let visit = try Visit(translator: translator)
@@ -94,7 +94,10 @@ struct ConversationRecorderTests {
         visit.engine.send(.volatile(text: "走了"))
         await waitUntil { s.liveText == "走了" }
         s.enterBackground()
+        s.enterBackground()
         s.enterForeground()
+        #expect(s.utterances.isEmpty)
+        #expect(try visit.turns().map(\.original) == ["走了"])
 
         // Dropped while its translation is on the way.
         await s.tap(.korean)
@@ -105,9 +108,87 @@ struct ConversationRecorderTests {
         await s.leave()
         gate.open()
         await wrapUp.value
+        await s.leave()
+        s.enterBackground()
 
+        #expect(s.utterances.isEmpty)
+        #expect(!s.saveFailed)
+        #expect(try visit.records().count == 1)
+        #expect(try visit.turns().map(\.speakerCode) == ["chinese", "korean"])
+        #expect(try visit.turns().map(\.original) == ["走了", "안녕"])
+        #expect(try visit.turns().map(\.translation) == ["", ""])
+    }
+
+    @MainActor @Test func leaveWhileListeningStoresTheRecognizedText() async throws {
+        let visit = try Visit()
+        let s = visit.session
+        await s.tap(.chinese)
+        visit.engine.send(.finalized(text: "你好", range: 0...1))
+        await waitUntil { s.liveText == "你好" }
+        await s.leave()
+        await s.leave()
+        #expect(s.utterances.isEmpty)
+        #expect(try visit.turns().map(\.original) == ["你好"])
+        #expect(try visit.turns().map(\.translation) == [""])
+    }
+
+    @MainActor @Test func leaveWhileWaitingForForegroundStoresTheTurnOnce() async throws {
+        let translator = ConversationTranslator()
+        let visit = try Visit(translator: translator)
+        let s = visit.session
+        await s.tap(.chinese)
+        visit.engine.send(.finalized(text: "等等", range: 0...1))
+        await s.tap(.chinese)
+        s.enterBackground()                             // finishing: kept, not yet stored
+        await waitUntil { s.foregroundSignal != nil }
+        #expect(try visit.turns().isEmpty)
+        let wrapUp = try #require(s.turn?.wrapUp)
+        await s.leave()
+        s.enterForeground()
+        await wrapUp.value
+        #expect(translator.requests.isEmpty)
+        #expect(try visit.turns().map(\.original) == ["等等"])
+        #expect(try visit.turns().map(\.translation) == [""])
+    }
+
+    @MainActor @Test func droppedTurnWithoutTextStoresNothing() async throws {
+        let visit = try Visit()
+        let s = visit.session
+        await s.tap(.chinese)
+        s.enterBackground()
+        s.enterForeground()
+        await s.tap(.korean)
+        await s.leave()
         #expect(try visit.records().isEmpty)
         #expect(try visit.turns().isEmpty)
+    }
+
+    @MainActor @Test func dropAfterATurnWasAddedStoresItOnlyOnce() async throws {
+        let visit = try Visit()
+        await visit.say("你好", as: .chinese)
+        visit.session.enterBackground()
+        visit.session.enterForeground()
+        await visit.session.leave()
+        #expect(try visit.turns().map(\.translation) == ["译:你好"])
+    }
+
+    @MainActor @Test func saveFailureOfADroppedTurnDisturbsNothing() async throws {
+        let visit = try Visit()
+        let s = visit.session
+        await visit.say("一", as: .chinese)
+        await s.tap(.korean)
+        visit.engine.send(.volatile(text: "丢"))
+        await waitUntil { s.liveText == "丢" }
+        visit.store.failNextSaves = 1
+        s.enterBackground()
+        s.enterForeground()
+        #expect(s.phase == .idle && s.notice == nil && s.liveText.isEmpty)
+        #expect(s.utterances.map(\.original) == ["一"])
+        #expect(s.saveFailed)
+
+        await visit.say("二", as: .chinese)
+        #expect(!s.saveFailed)
+        #expect(try visit.turns().map(\.original) == ["一", "二"])
     }
 
     /// Also: a failed first write leaves the following turns able to save.

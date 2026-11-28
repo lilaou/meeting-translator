@@ -1,6 +1,8 @@
 import Foundation
 
-/// Keeps the turns of a conversation. `ConversationSession` hands it each turn it adds.
+/// Keeps the turns of a conversation. `ConversationSession` hands it each turn it adds, and
+/// each dropped turn that has recognized text. `translation` is nil when the translation failed
+/// and "" when the turn was never translated.
 @MainActor public protocol ConversationSaving: AnyObject {
     func save(speaker: ConversationSide, original: String, translation: String?) throws
 }

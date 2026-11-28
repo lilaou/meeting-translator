@@ -6,12 +6,12 @@ import UniformTypeIdentifiers
 /// One saved record as a file to share, in one format.
 ///
 /// Nothing is written when this value is made or when the share button is drawn: the file is
-/// written (into a new folder of its own under the temporary directory, named
+/// written (by `TranscriptExport.writeFile`, under the temporary directory, named
 /// `TranscriptExport.fileName`) only when the share sheet asks for it, after the user tapped
 /// share. A `FileRepresentation` with that URL keeps the name and its `.txt` / `.md` extension;
 /// a `DataRepresentation` with `suggestedFileName` is known to lose the name in share sheets.
-/// The system takes a copy of the file (`allowAccessingOriginalFile: false`), and the temporary
-/// directory is the system's to clear.
+/// The system takes a copy of the file (`allowAccessingOriginalFile: false`); the app removes
+/// the exported files at launch and after a delete (`TranscriptExport.removeExportedFiles`).
 struct TranscriptFile: Transferable, Sendable {
     let document: TranscriptDocument
     let format: ExportFormat

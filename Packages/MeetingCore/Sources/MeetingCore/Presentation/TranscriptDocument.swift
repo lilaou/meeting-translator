@@ -51,7 +51,8 @@ public struct TranscriptDocument: Hashable, Sendable {
             }
             return Entry(label: [time.clock, speaker].compactMap { $0 }.joined(separator: " "),
                          original: turn.original,
-                         translation: turn.translation ?? CaptionStrings.translationFailed)
+                         translation: turn.translation.map(Self.shown)
+                             ?? CaptionStrings.translationFailed)
         }
     }
 
@@ -70,7 +71,8 @@ public struct TranscriptDocument: Hashable, Sendable {
         let display = SegmentDisplay(segment)
         return switch display.kind {
         case .translated:
-            Entry(label: label, original: display.sourceText, translation: display.translationText)
+            Entry(label: label, original: display.sourceText,
+                  translation: shown(display.translationText))
         case .pending:
             Entry(label: label, original: display.sourceText, translation: untranslated)
         case .failed:
@@ -79,6 +81,11 @@ public struct TranscriptDocument: Hashable, Sendable {
         case .interruption:
             Entry(label: label, original: CaptionStrings.interruption, translation: "")
         }
+    }
+
+    /// An empty translation means the text was never translated.
+    private static func shown(_ translation: String) -> String {
+        translation.isEmpty ? untranslated : translation
     }
 
     private static func titleTime(_ date: Date, in timeZone: TimeZone) -> String {

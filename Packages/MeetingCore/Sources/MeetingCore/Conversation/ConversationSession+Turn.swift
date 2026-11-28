@@ -148,10 +148,15 @@ extension ConversationSession {
         endTurn()
     }
 
-    /// Shows the turn and saves it; a failed save leaves the conversation as it is.
+    /// Shows the turn and saves it.
     private func add(_ side: ConversationSide, _ original: String, _ translation: String?) {
         utterances.append(ConversationUtterance(id: utterances.count, speaker: side,
                                                 original: original, translation: translation))
+        save(side, original, translation)
+    }
+
+    /// A failed save leaves the conversation as it is.
+    private func save(_ side: ConversationSide, _ original: String, _ translation: String?) {
         do {
             try saver?.save(speaker: side, original: original, translation: translation)
         } catch {
@@ -189,6 +194,7 @@ extension ConversationSession {
     }
 
     /// Drops the turn in progress: nothing of it appears any more, and the audio is stopped.
+    /// Text already recognized is saved with the translation "" (never translated).
     func discard() {
         guard let turn else { return }
         turn.cancelTimers()
@@ -197,7 +203,9 @@ extension ConversationSession {
         turn.engineAudio?.finish()
         foregroundSignal?.finish()
         foregroundSignal = nil
+        let original = liveText
         endTurn()
+        if !original.isEmpty { save(turn.side, original, "") }
         queueAudio { [audio] in await audio.stop() }
     }
 

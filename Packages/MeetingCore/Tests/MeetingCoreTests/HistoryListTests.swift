@@ -130,3 +130,36 @@ private let enUS = Locale(identifier: "en-US")
                 == TranscriptExport.render(document, as: format))
     }
 }
+
+/// Exported files hold record texts, so they live in one folder that can be removed as a whole.
+@MainActor @Test func removingExportedFilesDeletesOnlyTheExportFolder() throws {
+    let container = try MeetingStorage.makeInMemoryContainer()
+    let store = TranscriptStore(container: container)
+    _ = try addMeeting(store, at: began, ["Hello."])
+    let document = try #require(HistoryList.items(meetings: try all(Meeting.self, container),
+                                                  conversations: []).first).document
+    let files = FileManager.default
+    let dir = files.temporaryDirectory
+        .appendingPathComponent("HistoryListTests-\(UUID().uuidString)", isDirectory: true)
+    try files.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? files.removeItem(at: dir) }
+    let other = dir.appendingPathComponent("other.txt", isDirectory: false)
+    try Data("x".utf8).write(to: other)
+
+    TranscriptExport.removeExportedFiles(in: dir)               // nothing exported yet
+    let first = try TranscriptExport.writeFile(document, as: .text, in: dir)
+    let second = try TranscriptExport.writeFile(document, as: .markdown, in: dir)
+    #expect(try files.contentsOfDirectory(atPath: dir.path).sorted()
+            == [TranscriptExport.folderName, "other.txt"].sorted())
+    #expect([first, second].allSatisfy {
+        $0.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent
+            == TranscriptExport.folderName
+    })
+
+    TranscriptExport.removeExportedFiles(in: dir)
+    TranscriptExport.removeExportedFiles(in: dir)
+    #expect(try files.contentsOfDirectory(atPath: dir.path) == ["other.txt"])
+    // The next export makes the folder again.
+    let again = try TranscriptExport.writeFile(document, as: .text, in: dir)
+    #expect(files.fileExists(atPath: again.path))
+}

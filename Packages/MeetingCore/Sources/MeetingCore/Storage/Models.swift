@@ -68,7 +68,8 @@ public enum SegmentStatus: String, Codable, Sendable {
     }
 }
 
-/// One thing one side said. `speakerCode` is a `ConversationSide.rawValue`.
+/// One thing one side said. `speakerCode` is a `ConversationSide.rawValue`. `translation` is
+/// nil when the translation failed and "" when the text was never translated.
 @Model public final class ConversationTurnRecord {
     public var id: UUID
     public var conversation: ConversationRecord?

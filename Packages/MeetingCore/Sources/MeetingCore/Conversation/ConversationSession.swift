@@ -37,8 +37,9 @@ public struct ConversationTiming: Sendable {
 ///
 /// A turn ends on a second tap by its side, a timer, the end of the audio stream (a system
 /// interruption) or of the recognition stream. Each turn added to `utterances` is also handed
-/// to the `saver`, if there is one; a turn that was dropped (`enterBackground`, `leave`) is
-/// not saved and never changes the session again.
+/// to the `saver`, if there is one. A turn that is dropped (`enterBackground`, `leave`) is
+/// never added to `utterances`; if it already has recognized text, that is handed to the saver
+/// with the translation "" (never translated). After the drop it changes nothing more.
 @MainActor @Observable public final class ConversationSession {
     public enum Phase: Equatable, Sendable {
         case idle
@@ -60,7 +61,8 @@ public struct ConversationTiming: Sendable {
     public internal(set) var utterances: [ConversationUtterance] = []
     /// Why the last turn added nothing; cleared when the next one starts.
     public internal(set) var notice: Notice?
-    /// The latest turn is shown but could not be saved; cleared when the next one starts.
+    /// The latest turn (added, or dropped with text) could not be saved; cleared when the next
+    /// one starts.
     public internal(set) var saveFailed = false
 
     @ObservationIgnored let engine: any ASREngine
@@ -103,7 +105,8 @@ public struct ConversationTiming: Sendable {
         }
     }
 
-    /// Drops a turn that is starting or listening. A finishing turn is kept: its recognition
+    /// Drops a turn that is starting or listening (its recognized text, if any, is saved
+    /// untranslated). A finishing turn is kept: its recognition
     /// completes and its translation waits for `enterForeground()`.
     public func enterBackground() {
         isBackground = true
@@ -119,7 +122,8 @@ public struct ConversationTiming: Sendable {
         foregroundSignal = nil
     }
 
-    /// Drops the turn in progress and clears the conversation on screen; what was saved stays.
+    /// Drops the turn in progress, saving its recognized text untranslated if it has any, and
+    /// clears the conversation on screen; what was saved stays.
     /// The microphone is off when this returns.
     public func leave() async {
         discard()

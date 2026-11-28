@@ -61,6 +61,8 @@ enum AppAssembly {
     private static let languageKey = "sourceLanguage"
 
     static func make() -> Result<AppEnvironment, AssemblyError> {
+        // Files exported in an earlier run hold record texts.
+        TranscriptExport.removeExportedFiles(in: FileManager.default.temporaryDirectory)
         let container: ModelContainer
         do {
             container = try MeetingStorage.makeContainer(at: try storeURL())

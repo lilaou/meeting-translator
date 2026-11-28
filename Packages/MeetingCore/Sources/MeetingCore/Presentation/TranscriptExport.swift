@@ -13,6 +13,9 @@ public enum ExportFormat: String, CaseIterable, Sendable {
 
 /// Renders a `TranscriptDocument` as the content and name of an exported file.
 public enum TranscriptExport {
+    /// The subfolder that holds every exported file, so they can be removed together.
+    static let folderName = "TranscriptExports"
+
     /// The whole file, ending with one newline. Texts are not escaped for Markdown.
     public static func render(_ document: TranscriptDocument, as format: ExportFormat) -> String {
         let blocks: [String]
@@ -46,16 +49,27 @@ public enum TranscriptExport {
     }
 
     /// Writes the rendered file (UTF-8) as `fileName(for:as:timeZone:)` into a new folder of
-    /// its own inside `directory`, so files of the same name never overwrite each other, and
-    /// returns its URL. `directory` must exist.
+    /// its own inside the export folder of `directory`, so files of the same name never
+    /// overwrite each other, and returns its URL. The file stays until `removeExportedFiles`.
     public static func writeFile(_ document: TranscriptDocument, as format: ExportFormat,
                                  in directory: URL, timeZone: TimeZone = .current) throws -> URL {
-        let folder = directory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let folder = exportFolder(in: directory)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent(fileName(for: document, as: format, timeZone: timeZone),
                                                 isDirectory: false)
         try Data(render(document, as: format).utf8).write(to: url, options: .atomic)
         return url
+    }
+
+    /// Removes everything `writeFile` wrote into `directory`: exported files hold record texts,
+    /// which must not outlive a deleted record. Never fails; without exports it does nothing.
+    public static func removeExportedFiles(in directory: URL) {
+        try? FileManager.default.removeItem(at: exportFolder(in: directory))
+    }
+
+    private static func exportFolder(in directory: URL) -> URL {
+        directory.appendingPathComponent(folderName, isDirectory: true)
     }
 
     /// Every line of `text` as a line of one block quote.

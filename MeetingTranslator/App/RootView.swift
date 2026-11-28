@@ -12,7 +12,7 @@ struct RootView: View {
     let route: AppRoute
     let selection: LanguageSelection
     let faceToFace: FaceToFaceSetup
-    /// The history deletes through it.
+    /// The history deletes through it; a delete also removes the exported files.
     let store: TranscriptStore
 
     var body: some View {
@@ -34,7 +34,12 @@ struct RootView: View {
             FaceToFacePage(makeVisit: faceToFace.makeVisit,
                            onClose: { route.closeFaceToFace() })
         case .history:
-            HistoryPage(delete: { [store] in try store.delete($0) },
+            HistoryPage(delete: { [store] in
+                            try store.delete($0)
+                            // Exported copies of the deleted text go too; this cannot fail.
+                            TranscriptExport.removeExportedFiles(
+                                in: FileManager.default.temporaryDirectory)
+                        },
                         onClose: { route.closeHistory() })
         }
     }
