@@ -33,6 +33,7 @@ extension ConversationSession {
         phase = .starting(side)
         liveText = ""
         notice = nil
+        saveFailed = false
         await queueAudio { await self.record(turn) }.value
     }
 
@@ -143,9 +144,19 @@ extension ConversationSession {
         }
         let translation = await translate(original, from: turn.side)
         guard self.turn === turn else { return }
-        utterances.append(ConversationUtterance(id: utterances.count, speaker: turn.side,
-                                                original: original, translation: translation))
+        add(turn.side, original, translation)
         endTurn()
+    }
+
+    /// Shows the turn and saves it; a failed save leaves the conversation as it is.
+    private func add(_ side: ConversationSide, _ original: String, _ translation: String?) {
+        utterances.append(ConversationUtterance(id: utterances.count, speaker: side,
+                                                original: original, translation: translation))
+        do {
+            try saver?.save(speaker: side, original: original, translation: translation)
+        } catch {
+            saveFailed = true
+        }
     }
 
     /// As in the meeting: past the bound the engine is cancelled and what was heard is kept.

@@ -36,8 +36,9 @@ public struct ConversationTiming: Sendable {
 /// drain, then one translation of the whole turn) → `idle`.
 ///
 /// A turn ends on a second tap by its side, a timer, the end of the audio stream (a system
-/// interruption) or of the recognition stream. Nothing is stored; a turn that was dropped
-/// (`enterBackground`, `leave`) never changes the session again.
+/// interruption) or of the recognition stream. Each turn added to `utterances` is also handed
+/// to the `saver`, if there is one; a turn that was dropped (`enterBackground`, `leave`) is
+/// not saved and never changes the session again.
 @MainActor @Observable public final class ConversationSession {
     public enum Phase: Equatable, Sendable {
         case idle
@@ -59,11 +60,14 @@ public struct ConversationTiming: Sendable {
     public internal(set) var utterances: [ConversationUtterance] = []
     /// Why the last turn added nothing; cleared when the next one starts.
     public internal(set) var notice: Notice?
+    /// The latest turn is shown but could not be saved; cleared when the next one starts.
+    public internal(set) var saveFailed = false
 
     @ObservationIgnored let engine: any ASREngine
     @ObservationIgnored let audio: any AudioSource
     @ObservationIgnored let translator: @Sendable (ConversationSide) -> any Translator
     @ObservationIgnored let timing: ConversationTiming
+    @ObservationIgnored let saver: (any ConversationSaving)?
     /// The meeting's wrap-up bounds; internal so tests can shorten them.
     @ObservationIgnored var engineDrainTimeout = PipelineConfig().engineDrainTimeout
     @ObservationIgnored var translationTimeout = PipelineConfig().translationDrainTimeout
@@ -79,11 +83,13 @@ public struct ConversationTiming: Sendable {
     /// `translator(side)` renders what `side` says into the other side's language.
     public init(engine: any ASREngine, audio: any AudioSource,
                 translator: @escaping @Sendable (ConversationSide) -> any Translator,
-                timing: ConversationTiming) {
+                timing: ConversationTiming,
+                saver: (any ConversationSaving)? = nil) {
         self.engine = engine
         self.audio = audio
         self.translator = translator
         self.timing = timing
+        self.saver = saver
     }
 
     /// When idle, starts a turn for `side` and returns once it records (or failed). From the
@@ -113,12 +119,13 @@ public struct ConversationTiming: Sendable {
         foregroundSignal = nil
     }
 
-    /// Drops the turn in progress and clears the conversation. The microphone is off when
-    /// this returns.
+    /// Drops the turn in progress and clears the conversation on screen; what was saved stays.
+    /// The microphone is off when this returns.
     public func leave() async {
         discard()
         utterances = []
         notice = nil
+        saveFailed = false
         await audioTail?.value
     }
 }
