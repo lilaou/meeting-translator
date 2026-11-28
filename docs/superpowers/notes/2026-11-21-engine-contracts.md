@@ -41,11 +41,11 @@
 ## 未完成事项（本轮没有修）
 
 - 【已完成，Task 11a-2】`SessionCoordinator` 收尾时识别流和翻译的排空都有了时间上限（`PipelineConfig.engineDrainTimeout`，默认 10 秒；`PipelineConfig.translationDrainTimeout`，默认 30 秒；两个默认值都是暂定的，要用真机数据再调）。识别流超时：取消引擎任务（事件流的 `onTermination` 随之取消 analyzer），仍然 flush 半句、存储并入队。翻译超时：放弃翻译队列（`TranslationQueue.abandon()`），已到的结果照常写入，其余句子保持“待翻译”（`pendingTranslation`）、原文已保存，但 Phase 1 没有重试，这些句子的译文之后不会再补上（见“待定的设计决定”）；之后才到的结果被丢弃、不再写入。被放弃的请求在整批失败后也不再逐句重试（任务已被取消，结果反正会被丢弃）。两种超时都照常执行 `endMeeting`、保留全部已存记录，最终状态为 `.failed`（“识别在会议结束时未能及时完成……”/“有 N 句尚未完成翻译（原文已保存）”，与其他错误合并为一条提示）。“引擎永不结束”的测试同时覆盖了 `finish()` 和音频自行结束两种触发路径。
-- 【已完成，Task 11a-1】`TranscriptStore` 已改用 `container.mainContext`（界面用 `@Query` 读取，每次写入都在同一次主 actor 调用里保存，失败则回滚）。模型已有 `VersionedSchema` / `SchemaMigrationPlan`：`SchemaV1`（版本 1.0.0），`MeetingMigrationPlan` 目前没有迁移阶段；容器只由一个工厂 `MeetingStorage` 创建（`makeContainer(at:)` / `makeInMemoryContainer()`）。测试固定了 `SchemaV1` 中 `Meeting` 和 `Segment` 的全部属性名和关系名，改动模型必须新增 `SchemaV2` 和迁移阶段。
+- 【已完成，Task 11a-1】`TranscriptStore` 已改用 `container.mainContext`（界面用 `@Query` 读取，每次写入都在同一次主 actor 调用里保存，失败则回滚）。模型已有 `VersionedSchema` / `SchemaMigrationPlan`：`SchemaV1`（版本 1.0.0）和只新增两个面对面对话实体的 `SchemaV2`（2.0.0，2026-11-28），`MeetingMigrationPlan` 有一个从 V1 到 V2 的轻量迁移阶段；容器只由一个工厂 `MeetingStorage` 创建（`makeContainer(at:)` / `makeInMemoryContainer()`）。测试固定了 `SchemaV1` 中 `Meeting` 和 `Segment` 的全部属性名和关系名，改动任何模型都必须新增模式版本和迁移阶段（对话两个实体的形状同样由测试固定）。
 - 【已完成，Task 11a-3】`selfTest` 的取消：取消时原样抛出 `CancellationError`，不会被包装成 `selfTestFailed`；`OnboardingModel` 把它当作“已取消”而不是失败，并把调用方任务的取消转发给它启动的作业。
 - 会议结束后仍未翻译的句子（`pendingTranslation` / `translationFailed`）没有补译路径，Phase 1 不做。
 - 小问题：
-  - `audio.start` 在会议已创建之后失败时，历史里会留下一场空的、已结束的会议。
+  - `audio.start` 在会议已创建之后失败时，存储里会留下一场空的、已结束的会议。历史记录页不列出没有任何句子的记录，因此它看不到，也无法从界面删除。
   - 被中断的会议没有 `endReason`。
   - `hint(for:)` 显示的是 `localizedDescription`。
   - `append` 每次对所有句子求 max+1（2 小时会议是 O(n²)，在 Phase 2 测量）。
@@ -59,7 +59,7 @@
 
 1. 在主 actor 上用 `MeetingStorage.makeContainer(at:)` 只创建一次 `ModelContainer`，并把同一个实例同时传给 `.modelContainer(_:)` 和 `TranscriptStore(container:)`。
 2. 存储文件的 URL 应放在 Application Support 目录下，并且它的上级目录必须已经存在。
-3. 视图只用 `@Query` 读取，绝不在 `mainContext` 上插入、修改、删除或保存（也不要用 `@Bindable` 编辑）：存储写入失败时会回滚整个主上下文，而下一次存储保存又会把别人未保存的修改一并提交。
+3. 视图只用 `@Query` 读取，绝不在 `mainContext` 上插入、修改、删除或保存（也不要用 `@Bindable` 编辑）：存储写入失败时会回滚整个主上下文，而下一次存储保存又会把别人未保存的修改一并提交。这条“`TranscriptStore` 是唯一写入者”的规则也包括删除和面对面对话：历史记录页经 `TranscriptStore.delete` 删除，对话经 `ConversationRecorder` 调 `startConversation` / `appendTurn` 写入；App 只建一个 store，协调器、对话和历史页共用。删除后的界面不得再读被删的模型对象（历史页的行和详情页持有 `TranscriptDocument` 值副本）。删除失败时 store 回滚后要先自己 fetch 一次，且回滚前要 `processPendingChanges()`（两者都是在 macOS 15 上观察到的行为，见 `TranscriptStore` 注释）。
 4. `@Model` 对象只能在主 actor 上使用。
 5. 实时字幕列表需要一个子视图，它的 `init(meetingID:)` 构造一个按 `meeting?.id` 过滤、按 `index` 排序的 `Query`。
 6. `SessionCoordinator.State.finishing` 可能持续约 1 + 10 + 30 秒（音频、识别、翻译三个上限）：要显示这个状态并禁用按钮；状态回到 `.idle` 或 `.failed` 之前 `start` 会被忽略；要显示 `.failed(message)` 的文字，它可能用“；”连接了多个问题。
@@ -86,7 +86,7 @@
 - iOS 26/27 上 zh-Hans 对 “en” 的名称是否为“英语”（目前只在 macOS 15 上验证过）。
 - `engine.stop()` 以及 `onTermination → session.cancel()` 是否及时返回并释放 analyzer（协调器的取消路径依赖它）；被卡住的系统翻译会话在实际中的表现。
 - 真实 SwiftUI 场景中 `@Query` 是否实时更新；存储和 `mainContext` 在 iOS 18/26 上的行为是否与 macOS 15 相同（包括 `mainContext` 不会让容器保持存活、并发创建容器会崩溃这两条实现者的结论）。
-- 第一次真实的模式迁移（`SchemaV1` → `SchemaV2`）。
+- 第一次真实的模式迁移（`SchemaV1` → `SchemaV2`）。2026-11-28 在 iOS 27 模拟器上，上一版本（提交 3865879）写的存储用新版本打开后，其中的一场会议和两句话完好；iPhone 上未验证。升级前不要删除手机上的 App（删除会连记录一起删掉）。
 - `engineDrainTimeout` 10 秒 / `translationDrainTimeout` 30 秒是否合适。
 - 下载成功后不需要再点一次就到「已就绪」(`.translationTask` 在配置变为 nil 时会取消它的动作任务，视图已用独立的 Task 把报告交给模型)。
 - `cancel()` 时系统下载弹窗和下载是否真的随配置变 nil 而停止；若不停，第二次「下载」可能弹出第二个弹窗（过期报告已被丢弃）。
@@ -131,7 +131,7 @@
 - `zh-Hans → ko` 和 `ko → zh-Hans` 的翻译下载界面能否接连正常完成：第二个界面可能在第一个还在收起时就要弹出。
 - 倒置的上半屏：按钮的点按位置是否与看到的一致，对面的人滚动时方向是否符合直觉。
 - 从字幕页进入本页后，静置后屏幕是否保持常亮（字幕页消失时会恢复系统默认，两页出现与消失的先后顺序会影响结果）。
-- 说话中途来电：已听到的部分是否保留并在回到前台后翻译。如果音频结束在 App 已进后台之后才被处理，这一次会被丢弃，要确认实际顺序。
+- 说话中途来电：已听到的部分是否保留并在回到前台后翻译。如果音频结束在 App 已进后台之后才被处理，这一次会被丢弃（已识别的原话仍存入历史记录，标为未翻译，屏幕上不出现），要确认实际顺序。
 - 翻译进行中切到后台：这次翻译不会重做，回来后看该条是正常出现、显示翻译失败，还是一直停在翻译中。
 - 麦克风还在启动时就关闭本页，随即开始一场会议：会议录音是否正常（担心已关闭页面的启动失败清理会停用新会议的音频会话）。
 - 大号文字设置下，字幕页顶栏（含"面对面"按钮）是否被截断。
@@ -139,6 +139,19 @@
 - 韩语一半的按钮和提示措辞还没有请会韩语的人看过。
 - 识别模型系统里已装好、但本 App 未预留时：本页应把它列为缺少，点"下载"只做预留（没有可下载的内容）后进入"已就绪"，不会反复要求下载；杀掉重启后预留是否仍在。另外确认未预留时是否真的无法识别（尚未验证）。
 - 引导页上会议语言的作业（下载或自检）进行中时进入面对面：该作业会被取消，返回引导页后自动重新检查（语言包齐全时自检会重跑；没装完的下载需要再点一次"下载"）。确认取消能结束、返回后能跑完。
+
+### 历史记录与导出（均未在 iPhone 上验证）
+
+2026-11-28 在 iOS 27 模拟器上看过历史记录列表页和详情页的显示。验收表见 `docs/phase1-acceptance.md` 的"历史记录"一节；另外要确认：
+
+- 分享出去的文件名和扩展名是否是 `会议-日期-时间.txt` / `对话-日期-时间.md` 这样的形式。
+- 手工删除（列表左滑、详情页菜单）的整个流程。
+- 被丢弃的一次面对面发言（`leave()`，或听的过程中 `enterBackground()`）只要已识别出文字，就经 `ConversationSaving` 保存原话、译文 `""`（`nil` 仍表示翻译失败，`""` 表示从未翻译，显示"（未翻译）"），不加入 `utterances`，也只保存一次；保存失败只置 `saveFailed`。要确认：已出现识别文字时关闭页面或切后台，历史记录里有且只有一条。
+- 这一次还没结束时（包括切到后台后等回到前台翻译期间）App 被系统杀掉，它仍会丢失（代码如此，已知限制）。
+- 导出文件写在临时目录的 `TranscriptExports` 子文件夹（`TranscriptExport.writeFile`）；App 启动时和历史记录删除成功后整个删除（`removeExportedFiles`；清理本身失败会被忽略，不影响删除记录）。要确认：分享进行中和分享完成后接收方拿到的文件不受影响；系统分享时自己做的副本不在本 App 控制之内。
+- 记录会随系统的设备备份一起备份（存储在 Application Support，代码没有排除）。
+- 引导页上语言作业进行中时进入历史记录：引导页消失会取消该作业，与进入面对面时相同，确认返回后表现正常。
+- 大号文字设置下字幕页顶栏的"面对面"和历史按钮是否完整、长语言名是否按预期从中间省略。
 
 ## 待定的设计决定
 

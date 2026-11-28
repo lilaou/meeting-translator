@@ -59,7 +59,7 @@ struct FaceToFacePage: View {
             let session = visit.session
             ConversationBoard(
                 phase: session.phase, liveText: session.liveText, utterances: session.utterances,
-                notice: session.notice, lastSpeaker: lastSpeaker,
+                notice: session.notice, saveFailed: session.saveFailed, lastSpeaker: lastSpeaker,
                 tap: { tap($0, session) }, close: onClose)
         } else {
             ConversationPacksView(packs: visit.packs, close: onClose)

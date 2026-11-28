@@ -137,8 +137,9 @@ func conversationTiming(pause: Duration = .seconds(3600), silence: Duration = .s
 @MainActor
 func makeConversation(engine: any ASREngine, audio: any AudioSource = ProbeAudioSource(),
                       translator: ConversationTranslator = ConversationTranslator(),
-                      timing: ConversationTiming = conversationTiming()) -> ConversationSession {
+                      timing: ConversationTiming = conversationTiming(),
+                      saver: (any ConversationSaving)? = nil) -> ConversationSession {
     ConversationSession(engine: engine, audio: audio,
                         translator: { side in translator.note(side); return translator },
-                        timing: timing)
+                        timing: timing, saver: saver)
 }

@@ -3,14 +3,13 @@ import SwiftData
 
 /// The first shipped schema of the transcript store, pinned at version 1.0.0.
 ///
-/// Any change to `Meeting` or `Segment` (a stored property added, removed, renamed or
-/// retyped, a relationship or attribute option changed) needs a new `SchemaV2` that
-/// describes the new shape and a stage in `MeetingMigrationPlan`, otherwise existing
-/// records on a device cannot be opened (spec: 已有记录不能丢失).
+/// Records written with this schema are on devices, so it must stay as it is (spec:
+/// 已有记录不能丢失).
 ///
-/// The model classes stay top-level: SwiftData does not require them to be nested in the
-/// versioned schema while there is only one version. When V2 arrives, freeze the V1 shape
-/// as nested copies in this enum before changing the top-level classes.
+/// `Meeting` and `Segment` stay top-level and are shared with `SchemaV2`, which did not
+/// change them. Before a later version changes either class (a stored property added,
+/// removed, renamed or retyped, a relationship or attribute option changed), freeze the
+/// shape as nested copies in each earlier version that lists it.
 public enum SchemaV1: VersionedSchema {
     // Computed: `Schema.Version` is not `Sendable`, so a stored static would not compile in
     // Swift 6 mode.
@@ -19,15 +18,30 @@ public enum SchemaV1: VersionedSchema {
     public static var models: [any PersistentModel.Type] { [Meeting.self, Segment.self] }
 }
 
-/// Migration plan of the transcript store. Only `SchemaV1` exists, so there are no stages.
-public enum MeetingMigrationPlan: SchemaMigrationPlan {
-    public static var schemas: [any VersionedSchema.Type] { [SchemaV1.self] }
+/// Version 2.0.0: `SchemaV1` plus saved face-to-face conversations.
+///
+/// Any change to one of its models needs a new schema version and a stage in
+/// `MeetingMigrationPlan`, otherwise existing records on a device cannot be opened.
+public enum SchemaV2: VersionedSchema {
+    public static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 0) }
 
-    public static var stages: [MigrationStage] { [] }
+    public static var models: [any PersistentModel.Type] {
+        SchemaV1.models + [ConversationRecord.self, ConversationTurnRecord.self]
+    }
+}
+
+/// Migration plan of the transcript store. 1.0.0 to 2.0.0 only adds entities, so the stage
+/// is lightweight.
+public enum MeetingMigrationPlan: SchemaMigrationPlan {
+    public static var schemas: [any VersionedSchema.Type] { [SchemaV1.self, SchemaV2.self] }
+
+    public static var stages: [MigrationStage] {
+        [.lightweight(fromVersion: SchemaV1.self, toVersion: SchemaV2.self)]
+    }
 }
 
 /// Builds the `ModelContainer` for the transcript store: the only place that names the
-/// schema (`SchemaV1`) and the migration plan, used by the app and by every test.
+/// schema (`SchemaV2`) and the migration plan, used by the app and by every test.
 ///
 /// `@MainActor`: containers are created one at a time. Two containers for this schema
 /// created at once on different threads crashed inside Core Data (store setup races on the
@@ -50,7 +64,7 @@ public enum MeetingMigrationPlan: SchemaMigrationPlan {
         try make(ModelConfiguration(schema: schema, isStoredInMemoryOnly: true))
     }
 
-    private static var schema: Schema { Schema(versionedSchema: SchemaV1.self) }
+    private static var schema: Schema { Schema(versionedSchema: SchemaV2.self) }
 
     private static func make(_ configuration: ModelConfiguration) throws -> ModelContainer {
         try ModelContainer(for: schema, migrationPlan: MeetingMigrationPlan.self,

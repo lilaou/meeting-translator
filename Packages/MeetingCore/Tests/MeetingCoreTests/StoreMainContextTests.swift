@@ -74,28 +74,33 @@ private let enUS = Locale(identifier: "en-US")
 
 // MARK: - Versioned schema
 
-@Test func schemaIsPinnedAtVersionOne() {
+@Test func schemaVersionsAndMigrationPlanArePinned() {
     #expect(SchemaV1.versionIdentifier == Schema.Version(1, 0, 0))
     let models = Set(SchemaV1.models.map { ObjectIdentifier($0) })
     #expect(SchemaV1.models.count == 2)
     #expect(models == [ObjectIdentifier(Meeting.self), ObjectIdentifier(Segment.self)])
+    #expect(SchemaV2.versionIdentifier == Schema.Version(2, 0, 0))
+    #expect(SchemaV2.models.count == 4)
+    #expect(Set(SchemaV2.models.map { ObjectIdentifier($0) })
+            == models.union([ObjectIdentifier(ConversationRecord.self),
+                             ObjectIdentifier(ConversationTurnRecord.self)]))
     #expect(MeetingMigrationPlan.schemas.map { ObjectIdentifier($0) }
-            == [ObjectIdentifier(SchemaV1.self)])
-    #expect(MeetingMigrationPlan.stages.isEmpty)
+            == [ObjectIdentifier(SchemaV1.self), ObjectIdentifier(SchemaV2.self)])
+    #expect(MeetingMigrationPlan.stages.count == 1)
 }
 
 @MainActor @Test func factoryContainersUseTheVersionedSchema() throws {
     let container = try MeetingStorage.makeInMemoryContainer()
-    #expect(container.schema.version == SchemaV1.versionIdentifier)
+    #expect(container.schema.version == SchemaV2.versionIdentifier)
     let names = Set(container.schema.entities.map(\.name))
-    #expect(names == ["Meeting", "Segment"])
+    #expect(names == ["Meeting", "Segment", "ConversationRecord", "ConversationTurnRecord"])
 }
 
 /// Snapshot of the stored shape of `SchemaV1`: every attribute and relationship name of both
 /// models. Records already on a device were written with this shape, so it must never change.
 @MainActor @Test func schemaV1ShapeIsPinned() throws {
-    let message: Comment = "a model property changed — add SchemaV2 and a migration stage instead of editing V1"
-    let entities = try MeetingStorage.makeInMemoryContainer().schema.entities
+    let message: Comment = "a model property changed — add a schema version and a migration stage instead of editing V1"
+    let entities = Schema(versionedSchema: SchemaV1.self).entities
     let byName = Dictionary(uniqueKeysWithValues: entities.map { ($0.name, $0) })
     let meeting = try #require(byName["Meeting"])
     let segment = try #require(byName["Segment"])
@@ -109,6 +114,23 @@ private let enUS = Locale(identifier: "en-US")
     // Nothing stored beyond these attributes and relationships.
     #expect(meeting.properties.count == 6, message)
     #expect(segment.properties.count == 8, message)
+}
+
+/// The same snapshot for what `SchemaV2` added.
+@MainActor @Test func schemaV2ConversationShapeIsPinned() throws {
+    let message: Comment = "a model property changed — add a schema version and a migration stage instead of editing V2"
+    let entities = Schema(versionedSchema: SchemaV2.self).entities
+    let byName = Dictionary(uniqueKeysWithValues: entities.map { ($0.name, $0) })
+    let conversation = try #require(byName["ConversationRecord"])
+    let turn = try #require(byName["ConversationTurnRecord"])
+    #expect(Set(conversation.attributes.map(\.name))
+            == ["id", "startedAt", "languageCodes"], message)
+    #expect(Set(conversation.relationships.map(\.name)) == ["turns"], message)
+    #expect(Set(turn.attributes.map(\.name))
+            == ["id", "index", "speakerCode", "original", "translation", "date"], message)
+    #expect(Set(turn.relationships.map(\.name)) == ["conversation"], message)
+    #expect(conversation.properties.count == 4, message)
+    #expect(turn.properties.count == 7, message)
 }
 
 /// Opening the same on-disk store a second time through the factory works, whether the
@@ -130,7 +152,7 @@ private let enUS = Locale(identifier: "en-US")
 
         // Container 1 still alive.
         let second = try MeetingStorage.makeContainer(at: url)
-        #expect(second.schema.version == SchemaV1.versionIdentifier)
+        #expect(second.schema.version == SchemaV2.versionIdentifier)
         let whileOpen = try TranscriptStore(container: second).segments(of: m)
         #expect(whileOpen.map(\.sourceText) == ["One."])
         #expect(whileOpen.map(\.translatedText) == ["一。"])

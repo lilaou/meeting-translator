@@ -8,11 +8,12 @@ import SwiftUI
 /// which it holds) and a new one appears: its `.task` refreshes the new model, and the
 /// download state in `TranslationDownloadModifier` starts empty. Without the new identity
 /// the `.task` would not run again and an attempt could outlive its language. The picker
-/// stays outside that identity. So does the "面对面" button: that screen checks its own four
-/// packs, so it is offered whatever the state of these.
+/// stays outside that identity. So do the "面对面" button (that screen checks its own four
+/// packs, so it is offered whatever the state of these) and "历史记录".
 struct OnboardingPage: View {
     @Bindable var selection: LanguageSelection
     let onFaceToFace: () -> Void
+    let onHistory: () -> Void
     let onStart: () -> Void
 
     var body: some View {
@@ -28,9 +29,12 @@ struct OnboardingPage: View {
             .padding([.horizontal, .top])
             OnboardingView(onboarding: onboarding, direction: direction, onStart: onStart)
                 .id(ObjectIdentifier(onboarding))
-            Button("面对面", action: onFaceToFace)
-                .buttonStyle(.bordered)
-                .padding(.bottom)
+            HStack(spacing: 12) {
+                Button("面对面", action: onFaceToFace)
+                Button("历史记录", action: onHistory)
+            }
+            .buttonStyle(.bordered)
+            .padding(.bottom)
         }
     }
 }

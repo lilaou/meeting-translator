@@ -8,6 +8,8 @@ struct ConversationBoard: View {
     let liveText: String
     let utterances: [ConversationUtterance]
     let notice: ConversationSession.Notice?
+    /// The latest save failed (`ConversationSession.saveFailed`).
+    let saveFailed: Bool
     let lastSpeaker: ConversationSide
     let tap: (ConversationSide) -> Void
     let close: () -> Void
@@ -24,7 +26,9 @@ struct ConversationBoard: View {
     private func half(_ side: ConversationSide, close: (() -> Void)?) -> some View {
         ConversationHalf(
             side: side, phase: phase, liveText: liveText, utterances: utterances,
-            notice: notice?.shown(on: side, speaker: lastSpeaker), tap: { tap(side) }, close: close)
+            notice: notice?.shown(on: side, speaker: lastSpeaker),
+            // Only the app's user, on the Chinese side, keeps the records.
+            saveFailed: side == .chinese && saveFailed, tap: { tap(side) }, close: close)
     }
 }
 
@@ -37,6 +41,8 @@ struct ConversationHalf: View {
     let utterances: [ConversationUtterance]
     /// Already chosen for this side (see `Notice.shown`).
     let notice: ConversationShownNotice?
+    /// Shows "这条对话没有保存" under the latest turn.
+    let saveFailed: Bool
     let tap: () -> Void
     /// The close button; only the lower half has it, and it is never disabled.
     let close: (() -> Void)?
@@ -82,6 +88,9 @@ struct ConversationHalf: View {
                 ForEach(utterances) { row($0) }
                 if isSpeaking { speaking }
                 if let notice { noticeText(notice) }
+                if saveFailed {
+                    Text("这条对话没有保存").font(.footnote).foregroundStyle(.orange)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal)
@@ -168,7 +177,7 @@ extension ConversationBoard {
                 ConversationUtterance(id: 2, speaker: .korean, original: "점심 드셨어요?",
                                       translation: nil),
              ],
-             notice: nil, lastSpeaker: .chinese, tap: { _ in }, close: {})
+             notice: nil, saveFailed: false, lastSpeaker: .chinese, tap: { _ in }, close: {})
     }
 }
 
@@ -176,9 +185,16 @@ extension ConversationBoard {
 #Preview("listening") { ConversationBoard.sample(.listening(.chinese), liveText: "我们明天") }
 #Preview("not heard") {
     ConversationBoard(phase: .idle, liveText: "", utterances: [], notice: .notHeard,
-                      lastSpeaker: .korean, tap: { _ in }, close: {})
+                      saveFailed: false, lastSpeaker: .korean, tap: { _ in }, close: {})
 }
 #Preview("Korean turn failed") {
     ConversationBoard(phase: .idle, liveText: "", utterances: [], notice: .failed("无法开始录音"),
-                      lastSpeaker: .korean, tap: { _ in }, close: {})
+                      saveFailed: false, lastSpeaker: .korean, tap: { _ in }, close: {})
+}
+#Preview("turn not saved") {
+    ConversationBoard(
+        phase: .idle, liveText: "",
+        utterances: [ConversationUtterance(id: 0, speaker: .chinese, original: "你好。",
+                                           translation: "안녕하세요.")],
+        notice: nil, saveFailed: true, lastSpeaker: .chinese, tap: { _ in }, close: {})
 }

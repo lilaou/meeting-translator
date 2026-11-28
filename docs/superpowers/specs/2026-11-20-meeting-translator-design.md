@@ -159,6 +159,16 @@ Segment   { id, meeting, index, sourceText, translatedText?, startTime, endTime,
 
 句子每定稿一条就立即写盘，App 被杀也只丢失尚未定稿的那半句。翻译失败的句子保留原文，会后可重试。
 
+2026-11-28 增加面对面对话的两个实体（用户决定对话也要保存）。它们是 `SchemaV2`（2.0.0）相对 `SchemaV1` 唯一的改动，`Meeting` 和 `Segment` 未变，迁移为轻量迁移：
+
+```
+ConversationRecord     { id, startedAt, languageCodes }
+ConversationTurnRecord { id, conversation, index, speakerCode, original, translation?, date }
+          translation 为空表示翻译失败
+```
+
+只存文字，不存录音。
+
 ### 5.8 界面
 
 三个页面：
@@ -184,6 +194,8 @@ Segment   { id, meeting, index, sourceText, translatedText?, startTime, endTime,
 
    自动滚动到最新；用户手动上翻时停止自动滚动，出现"回到最新"按钮。支持横屏和字号调整。
 3. **历史记录**：会议列表 → 会议详情（双语对照），可复制、导出为文本或 Markdown。
+
+   现状（2026-11-28）：列表把会议和面对面对话合在一起按开始时间倒序，每行是类型、时间和第一句（有译文显示译文，否则原文；译文为空即从未翻译，详情和导出里显示"（未翻译）"）；没有任何句子的记录不列出。左滑删除，删除前确认。详情页逐条显示时间（会议为相对开始的时间，对话为钟点和说话方）、原文、译文，菜单里有"分享文本文件"（.txt）、"分享 Markdown 文件"（.md）、"复制全文"（纯文本）和"删除"。导出和分享只经系统分享菜单和剪贴板，由用户点击触发。入口在字幕页顶部（图标按钮，会议未进行时可用）和引导页底部。尚未在 iPhone 上验证。
 
 ### 5.9 工程结构
 
