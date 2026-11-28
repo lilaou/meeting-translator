@@ -6,12 +6,14 @@ import SwiftUI
 /// the user moves: "开始" on the onboarding (offered when it is ready), "更换语言" or "检查语言包"
 /// on the caption page. The caption page does not depend on the onboarding's step, which is
 /// untouched when launch led straight to it. Showing a page starts no meeting. Both pages offer
-/// the face-to-face screen (only while no meeting runs; the onboarding is never on screen
-/// during one), which closes back to the page it came from.
+/// the face-to-face screen and the history (only while no meeting runs; the onboarding is never
+/// on screen during one), each closing back to the page it came from.
 struct RootView: View {
     let route: AppRoute
     let selection: LanguageSelection
     let faceToFace: FaceToFaceSetup
+    /// The history deletes through it.
+    let store: TranscriptStore
 
     var body: some View {
         switch route.page {
@@ -20,15 +22,20 @@ struct RootView: View {
                 .task { await route.launch(locale: selection.language.locale) }
         case .onboarding:
             OnboardingPage(selection: selection, onFaceToFace: { route.showFaceToFace() },
+                           onHistory: { route.showHistory() },
                            onStart: { route.showCaptions() })
         case .captions:
             LiveCaptionView(language: selection.language,
                             onShowOnboarding: { route.showOnboarding() },
-                            onShowFaceToFace: { route.showFaceToFace() })
+                            onShowFaceToFace: { route.showFaceToFace() },
+                            onShowHistory: { route.showHistory() })
         case .faceToFace:
             // This branch is one visit: the page's state lives exactly as long as it.
             FaceToFacePage(makeVisit: faceToFace.makeVisit,
                            onClose: { route.closeFaceToFace() })
+        case .history:
+            HistoryPage(delete: { [store] in try store.delete($0) },
+                        onClose: { route.closeHistory() })
         }
     }
 }

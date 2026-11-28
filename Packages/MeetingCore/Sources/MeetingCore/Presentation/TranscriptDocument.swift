@@ -2,11 +2,11 @@ import Foundation
 
 /// A saved record as the history shows and exports it: a copy of the stored texts, so it can
 /// be used off the main actor and after the record is deleted.
-public struct TranscriptDocument: Equatable, Sendable {
+public struct TranscriptDocument: Hashable, Sendable {
     public enum Kind: Sendable { case meeting, conversation }
 
     /// One sentence of a meeting or one turn of a conversation.
-    public struct Entry: Equatable, Sendable {
+    public struct Entry: Hashable, Sendable {
         /// Time into the meeting ("00:00:05"), or clock time and side ("14:31:02 中文方").
         public let label: String
         public let original: String

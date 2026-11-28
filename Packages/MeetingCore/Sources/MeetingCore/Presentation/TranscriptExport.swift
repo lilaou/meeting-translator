@@ -45,6 +45,19 @@ public enum TranscriptExport {
             + ".\(format.fileExtension)"
     }
 
+    /// Writes the rendered file (UTF-8) as `fileName(for:as:timeZone:)` into a new folder of
+    /// its own inside `directory`, so files of the same name never overwrite each other, and
+    /// returns its URL. `directory` must exist.
+    public static func writeFile(_ document: TranscriptDocument, as format: ExportFormat,
+                                 in directory: URL, timeZone: TimeZone = .current) throws -> URL {
+        let folder = directory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let url = folder.appendingPathComponent(fileName(for: document, as: format, timeZone: timeZone),
+                                                isDirectory: false)
+        try Data(render(document, as: format).utf8).write(to: url, options: .atomic)
+        return url
+    }
+
     /// Every line of `text` as a line of one block quote.
     private static func quoted(_ text: String) -> String {
         text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
