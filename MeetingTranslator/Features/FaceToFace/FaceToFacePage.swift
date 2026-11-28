@@ -53,7 +53,9 @@ struct FaceToFacePage: View {
                     saveFailed: session.saveFailed, lastSpeaker: lastSpeaker,
                     tap: { tap($0, model) }, close: onClose)
             } else {
-                ConversationPacksView(packs: visit.packs, picker: picker, close: onClose)
+                ConversationPacksView(
+                    packs: visit.packs, picker: picker,
+                    isCurrent: { visit.packs === model.visit.packs }, close: onClose)
             }
         }
         .conversationTranslationDownload(for: visit.packs)

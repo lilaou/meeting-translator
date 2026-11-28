@@ -73,7 +73,9 @@ public enum ConversationPack: Equatable, Hashable, Sendable {
     /// The other side's language; it never changes.
     public let partner: ConversationSide
 
+    /// `partner` must be one of `ConversationSide.partners`.
     public init(checking: any ConversationPackChecking, partner: ConversationSide) {
+        precondition(ConversationSide.partners.contains(partner))
         self.checking = checking
         self.partner = partner
     }

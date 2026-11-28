@@ -7,6 +7,8 @@ import SwiftUI
 struct ConversationPacksView: View {
     let packs: ConversationPacks
     let picker: PartnerPicker
+    /// Whether `packs` still belongs to the current visit.
+    let isCurrent: @MainActor () -> Bool
     let close: () -> Void
 
     var body: some View {
@@ -31,7 +33,7 @@ struct ConversationPacksView: View {
         case .missing(let missing):
             Text("还缺少以下语言包：")
             ForEach(missing, id: \.self) { Text(name(of: $0)).foregroundStyle(.secondary) }
-            Button("下载") { Task { await packs.download() } }
+            Button("下载") { start { await packs.download() } }
                 .buttonStyle(.borderedProminent)
                 .disabled(packs.isBusy)
         case .installing(let pack):
@@ -43,9 +45,18 @@ struct ConversationPacksView: View {
             EmptyView()
         case .failed(let message):
             Text(message)
-            Button("重试") { Task { await packs.refresh() } }
+            Button("重试") { start { await packs.refresh() } }
                 .buttonStyle(.borderedProminent)
                 .disabled(packs.isBusy)
+        }
+    }
+
+    private func start(_ job: @escaping @MainActor () async -> Void) {
+        Task {
+            // The language may have changed before this task ran: the tap was for the old packs,
+            // and a closed visit's packs would still install.
+            guard isCurrent() else { return }
+            await job()
         }
     }
 
@@ -78,6 +89,6 @@ private struct NothingInstalled: ConversationPackChecking {
                                                       partner: .korean)
     ConversationPacksView(
         packs: packs, picker: PartnerPicker(partner: .korean, canChoose: true, choose: { _ in }),
-        close: {})
+        isCurrent: { true }, close: {})
         .task { await packs.refresh() }
 }

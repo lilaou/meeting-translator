@@ -18,8 +18,10 @@ import Foundation
     /// next turn.
     private var conversationID: UUID?
 
+    /// `partner` must be one of `ConversationSide.partners`.
     public init(store: TranscriptStore, partner: ConversationSide,
                 now: @escaping () -> Date = { Date() }) {
+        precondition(ConversationSide.partners.contains(partner))
         self.store = store
         self.partner = partner
         self.now = now
